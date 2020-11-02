@@ -347,7 +347,7 @@ typedef void zdotu_type(f2c_doublecomplex *ret_val, int *n,
 typedef void cdotc_type(f2c_complex *ret_val, int *n,
                         f2c_complex *sx, int *incx,
                         f2c_complex *sy, int *incy);
-            
+
 typedef void zdotc_type(f2c_doublecomplex *ret_val, int *n,
                         f2c_doublecomplex *sx, int *incx,
                         f2c_doublecomplex *sy, int *incy);
@@ -359,7 +359,7 @@ typedef int sgemm_type(char *transa, char *transb,
                        float *b, int *ldb,
                        float *beta,
                        float *c, int *ldc);
-            
+
 typedef int dgemm_type(char *transa, char *transb,
                        int *m, int *n, int *k,
                        double *alpha,
@@ -528,6 +528,16 @@ typedef int ztrtrs_type(char *uplo, char* trans, char *diag,
                         f2c_doublecomplex *b, int *ldb,
                         int *info);
 
+typedef int ssyrk_type(char *uplo, char *trans,
+                       int *n, int *k,
+                       float *alpha, float *a, int *lda,
+                       float *beta, float *c, int *ldc);
+
+typedef int dsyrk_type(char *uplo, char *trans,
+                       int *n, int *k,
+                       double *alpha, double *a, int *lda,
+                       double *beta, double *c, int *ldc);
+
 /* LAPACK related external symbols */
 extern sgeev_type FNAME(sgeev);
 extern dgeev_type FNAME(dgeev);
@@ -617,6 +627,8 @@ extern cgeru_type FNAME(cgeru);
 extern zgeru_type FNAME(zgeru);
 extern cgerc_type FNAME(cgerc);
 extern zgerc_type FNAME(zgerc);
+extern ssyrk_type FNAME(ssyrk);
+extern dsyrk_type FNAME(dsyrk);
 
 
 #define LAPACK_T(FUNC)                                          \
@@ -1583,7 +1595,7 @@ matrix_desc_init(matrix_desc *mtxd,
        As GEMM supports transposed parameters *and* we want to avoid copies,
        we'll try to figure out if we can avoid the copy by using either the
        straight matrix or its transpose.
-    */ 
+    */
     npy_int col_stride = steps[0];
     npy_int row_stride = steps[1];
 
@@ -2091,6 +2103,175 @@ static void
 {
     @TYPE@_update_rank1_common(0, args, dimensions, steps);
 }
+
+/**end repeat**/
+
+
+/* -------------------------------------------------------------------------- */
+                        /* Rank k update */
+
+typedef struct syrk_params_struct
+{
+    void *A;
+    void *C;
+    fortran_int N;
+    fortran_int K;
+    fortran_int LDA;
+    fortran_int LDC;
+} SYRK_PARAMS_t;
+
+static inline int
+init_syrk_params(SYRK_PARAMS_t *params,
+                 fortran_int k,
+                 fortran_int n,
+                 char trans,
+                 npy_intp* steps,
+                 size_t sot)
+{
+    npy_uint8 *mem_buff = malloc(n * k * sot);
+    if (!mem_buff) {
+        memset(params, 0, sizeof(*params));
+        return 0;
+    }
+
+    npy_uint8 *mem_buff2 = malloc(n * n * sot);
+    if (!mem_buff2) {
+        memset(params, 0, sizeof(*params));
+        return 0;
+    }
+
+    params->A = mem_buff;
+    params->C = mem_buff2;
+    if (trans=='N'){
+        params->LDA = n;  // must be at least max(1, n)
+    } else {
+        params->LDA = k;  // must be at least max(1, k)
+    }
+    params->LDC = n;  // must be at least max(1, n)
+    params->N = n;
+    params->K = k;
+
+    return 1;
+}
+
+static inline void
+release_syrk_params(SYRK_PARAMS_t * params)
+{
+    free(params->A);
+    params->A = NULL;
+    free(params->C);
+    params->C = NULL;
+}
+
+/**begin repeat
+   #TYPE=FLOAT,DOUBLE#
+   #typ=npy_float,npy_double#
+   #one=s_one,d_one#
+   #zero=s_zero,d_zero#
+   #SYRK=ssyrk,dsyrk#
+*/
+
+/*
+ *   uplo:  'U' - C is upper triangular matrix. 'L' - Lower triangular.
+ *   trans: 'N' - No transpose, 'T' - Transpose, 'C' - Conjugate transpose.
+ */
+static void
+@TYPE@_update_rankk_common(char uplo,
+                           char trans,
+                           char **args,
+                           npy_intp *dimensions,
+                           npy_intp *steps)
+{
+    SYRK_PARAMS_t params;
+    fortran_int k, n;
+
+    INIT_OUTER_LOOP_3
+
+    n = (fortran_int) dimensions[0];
+    k = (fortran_int) dimensions[1];
+
+    if (k == 0 || n == 0)
+        return; /* output array will be empty, as one of its inner dimensions will be 0 */
+
+    size_t sot = sizeof(@typ@);
+
+    if (init_syrk_params(&params, n, k, trans, steps, sot))
+    {
+        LINEARIZE_DATA_t a_in, c_in, r_out;
+        init_linearize_data(&a_in, n, k, steps[1], steps[0]);
+        init_linearize_data(&c_in, n, k, steps[3], steps[2]);
+        init_linearize_data(&r_out, n, k, steps[5], steps[4]);
+
+        BEGIN_OUTER_LOOP_3
+            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+            linearize_@TYPE@_matrix(params.C, args[1], &c_in);
+
+            /*
+             * If size of a vector is 1 (or matrix is 1x1), gufunc won't
+             * step along that dimension. The stride will be 0 for that
+             * dimension.
+             * Refer: https://docs.scipy.org/doc/numpy-1.15.1/reference/ufuncs.html#broadcasting
+             * SYRK expects positive incx and incy, so set that to 1.
+             *
+             * fortran_int incx = steps[0] != 0 ? steps[0] / sot : 1;
+             * fortran_int incy = steps[1] != 0 ? steps[1] / sot : 1;
+             */
+
+            /*
+             * To get rank1 update, invoke syrk_.
+             * alpha*A*A' + beta*C
+             * or
+             * alpha*A'*A + beta*c
+             * Signature of rankk update is
+             * (N, K) x (K, N) -> (N, N)
+             */
+             FNAME(@SYRK@)(&uplo,
+                           &trans,
+                           &params.N,
+                           &params.K,
+                           (void*)&@one@, // alpha (default=1.0)
+                           params.A,
+                           &params.LDA,
+                           (void*)&@one@, // beta (default=1.0)
+                           params.C,
+                           &params.LDC);
+
+            /* Copy Fortran matrix returned by SYRK to output argument */
+            delinearize_@TYPE@_matrix(args[2], params.C, &r_out);
+        END_OUTER_LOOP
+
+        release_syrk_params(&params);
+    }
+}
+
+static void
+@TYPE@_update_rankk_down(char **args, npy_intp *dimensions,
+                    npy_intp *steps, void *NPY_UNUSED(func))
+{
+    @TYPE@_update_rankk_common('L', 'N', args, dimensions, steps);
+}
+
+static void
+@TYPE@_update_rankk_down_transpose(char **args, npy_intp *dimensions,
+                              npy_intp *steps, void *NPY_UNUSED(func))
+{
+    @TYPE@_update_rankk_common('L', 'T', args, dimensions, steps);
+}
+
+static void
+@TYPE@_update_rankk_up(char **args, npy_intp *dimensions,
+                    npy_intp *steps, void *NPY_UNUSED(func))
+{
+    @TYPE@_update_rankk_common('U', 'N', args, dimensions, steps);
+}
+
+static void
+@TYPE@_update_rankk_up_transpose(char **args, npy_intp *dimensions,
+                              npy_intp *steps, void *NPY_UNUSED(func))
+{
+    @TYPE@_update_rankk_common('U', 'T', args, dimensions, steps);
+}
+
 
 /**end repeat**/
 
@@ -5600,6 +5781,10 @@ GUFUNC_FUNC_ARRAY_REAL_COMPLEX(matrix_multiply);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(matvec_multiply);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(update_rank1);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(update_rank1_conjugate);
+GUFUNC_FUNC_ARRAY_REAL(update_rankk_down);
+GUFUNC_FUNC_ARRAY_REAL(update_rankk_down_transpose);
+GUFUNC_FUNC_ARRAY_REAL(update_rankk_up);
+GUFUNC_FUNC_ARRAY_REAL(update_rankk_up_transpose);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(slogdet);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(det);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(eighlo);
@@ -5833,12 +6018,48 @@ static GUFUNC_DESCRIPTOR_t gufunc_descriptors [] = {
     {
         "update_rank1_conjugate",
         "(m),(n),(m,n)->(m,n)",
-        "rank1 update on last three dimensions and broadcast on the rest. \n"\
+        "rank1 update on last ? dimensions and broadcast on the rest. \n"\
         "For complex numbers, uses conjugate transpose internally. \n"\
         "    \"(m),(n),(m,n)->(m,n)\" \n",
         4, 3, 1,
         FUNC_ARRAY_NAME(update_rank1_conjugate),
         equal_4_types
+    },
+    {
+        "update_rankk_down",
+        "(n,k),(k,n)->(n,n)",
+        "rankk update on last ? dimensions and broadcast on the rest \n"\
+        "    \"(n,k),(k,n)->(n,n)\" \n",
+        2, 2, 1,
+        FUNC_ARRAY_NAME(update_rankk_down),
+        equal_3_types
+    },
+    {
+        "update_rankk_down_transpose",
+        "(n,k),(k,n)->(n,n)",
+        "rankk update on last ? dimensions and broadcast on the rest \n"\
+        "    \"(n,k),(k,n)->(n,n)\" \n",
+        2, 2, 1,
+        FUNC_ARRAY_NAME(update_rankk_down_transpose),
+        equal_3_types
+    },
+    {
+        "update_rankk_up",
+        "(n,k),(k,n)->(n,n)",
+        "rankk update on last ? dimensions and broadcast on the rest \n"\
+        "    \"(n,k),(k,n)->(n,n)\" \n",
+        2, 2, 1,
+        FUNC_ARRAY_NAME(update_rankk_up),
+        equal_3_types
+    },
+    {
+        "update_rankk_up_transpose",
+        "(n,k),(k,n)->(n,n)",
+        "rankk update on last ? dimensions and broadcast on the rest \n"\
+        "    \"(n,k),(k,n)->(n,n)\" \n",
+        2, 2, 1,
+        FUNC_ARRAY_NAME(update_rankk_up_transpose),
+        equal_3_types
     },
     {
         "slogdet",

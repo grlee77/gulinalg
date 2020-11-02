@@ -106,7 +106,8 @@ from __future__ import print_function, division, absolute_import
 
 
 from .gufunc_general import (inner1d, dotc1d, innerwt, matrix_multiply,
-                             matvec_multiply, update_rank1, quadratic_form)
+                             matvec_multiply, update_rank1, quadratic_form,
+                             update_rankk)
 from .gufunc_linalg import (det, slogdet, cholesky, lu, qr, eig, eigvals,
                             eigh, eigvalsh, solve, solve_triangular, svd,
                             chosolve, inv, inv_triangular, poinv, ldl)

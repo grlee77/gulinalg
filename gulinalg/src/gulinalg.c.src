@@ -2122,8 +2122,8 @@ typedef struct syrk_params_struct
 
 static inline int
 init_syrk_params(SYRK_PARAMS_t *params,
-                 fortran_int k,
                  fortran_int n,
+                 fortran_int k,
                  char trans,
                  npy_intp* steps,
                  size_t sot)
@@ -2187,8 +2187,15 @@ static void
 
     INIT_OUTER_LOOP_3
 
-    n = (fortran_int) dimensions[0];
-    k = (fortran_int) dimensions[1];
+    if (trans == 'N')
+    {
+        n = (fortran_int) dimensions[0];
+        k = (fortran_int) dimensions[1];
+    } else
+    {
+        k = (fortran_int) dimensions[0];
+        n = (fortran_int) dimensions[1];
+    }
 
     if (k == 0 || n == 0)
         return; /* output array will be empty, as one of its inner dimensions will be 0 */
@@ -2199,8 +2206,8 @@ static void
     {
         LINEARIZE_DATA_t a_in, c_in, r_out;
         init_linearize_data(&a_in, n, k, steps[1], steps[0]);
-        init_linearize_data(&c_in, n, k, steps[3], steps[2]);
-        init_linearize_data(&r_out, n, k, steps[5], steps[4]);
+        init_linearize_data(&c_in, n, n, steps[3], steps[2]);
+        init_linearize_data(&r_out, n, n, steps[5], steps[4]);
 
         BEGIN_OUTER_LOOP_3
             linearize_@TYPE@_matrix(params.A, args[0], &a_in);
@@ -2222,8 +2229,6 @@ static void
              * alpha*A*A' + beta*C
              * or
              * alpha*A'*A + beta*c
-             * Signature of rankk update is
-             * (N, K) x (K, N) -> (N, N)
              */
              FNAME(@SYRK@)(&uplo,
                            &trans,
@@ -6027,25 +6032,25 @@ static GUFUNC_DESCRIPTOR_t gufunc_descriptors [] = {
     },
     {
         "update_rankk_down",
-        "(n,k),(k,n)->(n,n)",
+        "(n,k),(n,n)->(n,n)",
         "rankk update on last ? dimensions and broadcast on the rest \n"\
-        "    \"(n,k),(k,n)->(n,n)\" \n",
+        "    \"(n,k),(n,n)->(n,n)\" \n",
         2, 2, 1,
         FUNC_ARRAY_NAME(update_rankk_down),
         equal_3_types
     },
     {
         "update_rankk_down_transpose",
-        "(n,k),(k,n)->(n,n)",
+        "(k,n),(n,n)->(n,n)",
         "rankk update on last ? dimensions and broadcast on the rest \n"\
-        "    \"(n,k),(k,n)->(n,n)\" \n",
+        "    \"(k,n),(n,n)->(n,n)\" \n",
         2, 2, 1,
         FUNC_ARRAY_NAME(update_rankk_down_transpose),
         equal_3_types
     },
     {
         "update_rankk_up",
-        "(n,k),(k,n)->(n,n)",
+        "(n,k),(n,n)->(n,n)",
         "rankk update on last ? dimensions and broadcast on the rest \n"\
         "    \"(n,k),(k,n)->(n,n)\" \n",
         2, 2, 1,
@@ -6054,9 +6059,9 @@ static GUFUNC_DESCRIPTOR_t gufunc_descriptors [] = {
     },
     {
         "update_rankk_up_transpose",
-        "(n,k),(k,n)->(n,n)",
+        "(k,n),(n,n)->(n,n)",
         "rankk update on last ? dimensions and broadcast on the rest \n"\
-        "    \"(n,k),(k,n)->(n,n)\" \n",
+        "    \"(k,n),(n,n)->(n,n)\" \n",
         2, 2, 1,
         FUNC_ARRAY_NAME(update_rankk_up_transpose),
         equal_3_types

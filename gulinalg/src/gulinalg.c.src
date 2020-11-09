@@ -2187,12 +2187,15 @@ static void
 
     INIT_OUTER_LOOP_3
 
-    if (trans == 'N')
-    {
+    if (trans == 'N') {
         n = (fortran_int) dimensions[0];
         k = (fortran_int) dimensions[1];
-    } else
-    {
+    }
+    else {
+        /* TODO: fix trans != N case. currently this branch is never called
+           because gufunc_general.py does the transpose so that this function
+           is always called with trans == 'N'
+         */
         k = (fortran_int) dimensions[0];
         n = (fortran_int) dimensions[1];
     }
@@ -2205,7 +2208,7 @@ static void
     if (init_syrk_params(&params, n, k, trans, steps, sot))
     {
         LINEARIZE_DATA_t a_in, c_in, r_out;
-        init_linearize_data(&a_in, n, k, steps[1], steps[0]);
+        init_linearize_data(&a_in, k, n, steps[1], steps[0]);
         init_linearize_data(&c_in, n, n, steps[3], steps[2]);
         init_linearize_data(&r_out, n, n, steps[5], steps[4]);
 
@@ -2214,18 +2217,7 @@ static void
             linearize_@TYPE@_matrix(params.C, args[1], &c_in);
 
             /*
-             * If size of a vector is 1 (or matrix is 1x1), gufunc won't
-             * step along that dimension. The stride will be 0 for that
-             * dimension.
-             * Refer: https://docs.scipy.org/doc/numpy-1.15.1/reference/ufuncs.html#broadcasting
-             * SYRK expects positive incx and incy, so set that to 1.
-             *
-             * fortran_int incx = steps[0] != 0 ? steps[0] / sot : 1;
-             * fortran_int incy = steps[1] != 0 ? steps[1] / sot : 1;
-             */
-
-            /*
-             * To get rank1 update, invoke syrk_.
+             * To get rank-k update, invoke syrk_.
              * alpha*A*A' + beta*C
              * or
              * alpha*A'*A + beta*c
@@ -2257,24 +2249,10 @@ static void
 }
 
 static void
-@TYPE@_update_rankk_down_transpose(char **args, npy_intp *dimensions,
-                              npy_intp *steps, void *NPY_UNUSED(func))
-{
-    @TYPE@_update_rankk_common('L', 'T', args, dimensions, steps);
-}
-
-static void
 @TYPE@_update_rankk_up(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
     @TYPE@_update_rankk_common('U', 'N', args, dimensions, steps);
-}
-
-static void
-@TYPE@_update_rankk_up_transpose(char **args, npy_intp *dimensions,
-                              npy_intp *steps, void *NPY_UNUSED(func))
-{
-    @TYPE@_update_rankk_common('U', 'T', args, dimensions, steps);
 }
 
 
@@ -5787,9 +5765,7 @@ GUFUNC_FUNC_ARRAY_REAL_COMPLEX(matvec_multiply);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(update_rank1);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(update_rank1_conjugate);
 GUFUNC_FUNC_ARRAY_REAL(update_rankk_down);
-GUFUNC_FUNC_ARRAY_REAL(update_rankk_down_transpose);
 GUFUNC_FUNC_ARRAY_REAL(update_rankk_up);
-GUFUNC_FUNC_ARRAY_REAL(update_rankk_up_transpose);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(slogdet);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(det);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(eighlo);
@@ -6023,7 +5999,7 @@ static GUFUNC_DESCRIPTOR_t gufunc_descriptors [] = {
     {
         "update_rank1_conjugate",
         "(m),(n),(m,n)->(m,n)",
-        "rank1 update on last ? dimensions and broadcast on the rest. \n"\
+        "rank1 update on last three dimensions and broadcast on the rest. \n"\
         "For complex numbers, uses conjugate transpose internally. \n"\
         "    \"(m),(n),(m,n)->(m,n)\" \n",
         4, 3, 1,
@@ -6033,37 +6009,19 @@ static GUFUNC_DESCRIPTOR_t gufunc_descriptors [] = {
     {
         "update_rankk_down",
         "(n,k),(n,n)->(n,n)",
-        "rankk update on last ? dimensions and broadcast on the rest \n"\
+        "rank-k update on last two dimensions and broadcast on the rest \n"\
         "    \"(n,k),(n,n)->(n,n)\" \n",
         2, 2, 1,
         FUNC_ARRAY_NAME(update_rankk_down),
         equal_3_types
     },
     {
-        "update_rankk_down_transpose",
-        "(k,n),(n,n)->(n,n)",
-        "rankk update on last ? dimensions and broadcast on the rest \n"\
-        "    \"(k,n),(n,n)->(n,n)\" \n",
-        2, 2, 1,
-        FUNC_ARRAY_NAME(update_rankk_down_transpose),
-        equal_3_types
-    },
-    {
         "update_rankk_up",
         "(n,k),(n,n)->(n,n)",
-        "rankk update on last ? dimensions and broadcast on the rest \n"\
+        "rank-k update on last two dimensions and broadcast on the rest \n"\
         "    \"(n,k),(k,n)->(n,n)\" \n",
         2, 2, 1,
         FUNC_ARRAY_NAME(update_rankk_up),
-        equal_3_types
-    },
-    {
-        "update_rankk_up_transpose",
-        "(k,n),(n,n)->(n,n)",
-        "rankk update on last ? dimensions and broadcast on the rest \n"\
-        "    \"(k,n),(n,n)->(n,n)\" \n",
-        2, 2, 1,
-        FUNC_ARRAY_NAME(update_rankk_up_transpose),
         equal_3_types
     },
     {

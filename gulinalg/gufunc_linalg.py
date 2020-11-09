@@ -309,12 +309,12 @@ def cholesky(a, UPLO='L', **kwargs):
     --------
     >>> A = np.array([[1,0-2j],[0+2j,5]])
     >>> A
-    array([[ 1.+0.j,  0.-2.j],
-           [ 0.+2.j,  5.+0.j]])
+    array([[1.+0.j, 0.-2.j],
+           [0.+2.j, 5.+0.j]])
     >>> L = cholesky(A)
     >>> L
-    array([[ 1.+0.j,  0.+0.j],
-           [ 0.+2.j,  1.+0.j]])
+    array([[1.+0.j, 0.+0.j],
+           [0.+2.j, 1.+0.j]])
 
     """
     if 'L' == UPLO:
@@ -616,7 +616,7 @@ def eigvalsh(A, UPLO='L', **kw_args):
 
     eigvalsh on an identity matrix is all ones
     >>> eigvalsh(np.eye(6))
-    array([ 1.,  1.,  1.,  1.,  1.,  1.])
+    array([1., 1., 1., 1., 1., 1.])
 
     """
     if ('L' == UPLO):
@@ -674,7 +674,7 @@ def solve(A,B,**kw_args):
     >>> b = np.array([9,8])
     >>> x = solve(a, b)
     >>> x
-    array([ 2.,  3.])
+    array([2., 3.])
 
     Check that the solution is correct:
 
@@ -991,7 +991,7 @@ def chosolve(A, B, UPLO='L', **kw_args):
     >>> b = np.array([9,8])
     >>> x = solve(a, b)
     >>> x
-    array([ 2.,  3.])
+    array([2., 3.])
 
     Check that the solution is correct:
 
@@ -1075,7 +1075,7 @@ def solve_triangular(A, B, UPLO='L',
     >>> b = np.array([6,8])
     >>> x = solve_triangular(a, b)
     >>> x
-    array([ 2.,  3.])
+    array([2., 3.])
 
     Check that the solution is correct:
 
@@ -1231,8 +1231,3 @@ def ldl(A, **kwargs):
     """
 
     return _impl.ldl(A, **kwargs)
-
-
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()

@@ -75,7 +75,7 @@ def inner1d(a, b, **kwargs):
     >>> res.shape == (2,)
     True
     >>> print (res)
-    [  7.  43.]
+    [ 7. 43.]
 
     """
     return _impl.inner1d(a, b, **kwargs)
@@ -123,7 +123,7 @@ def dotc1d(a, b, **kwargs):
     >>> res.shape == (2,)
     True
     >>> print (res)
-    [  7.  43.]
+    [ 7. 43.]
 
     """
     return _impl.dotc1d(a, b, **kwargs)
@@ -165,7 +165,7 @@ def innerwt(a, b, c, **kwargs):
     >>> res.shape == (2,)
     True
     >>> res
-    array([  3.25,  39.25])
+    array([ 3.25, 39.25])
 
     """
     return _impl.innerwt(a, b, c, **kwargs)
@@ -204,11 +204,11 @@ def matrix_multiply(a,b,**kwargs):
     >>> res.shape == (2, 2, 3)
     True
     >>> res
-    array([[[   70.,    80.,    90.],
-            [  158.,   184.,   210.]],
+    array([[[  70.,   80.,   90.],
+            [ 158.,  184.,  210.]],
     <BLANKLINE>
-           [[  750.,   792.,   834.],
-            [ 1030.,  1088.,  1146.]]])
+           [[ 750.,  792.,  834.],
+            [1030., 1088., 1146.]]])
 
     """
     return _impl.matrix_multiply(a,b,**kwargs)
@@ -247,8 +247,8 @@ def matvec_multiply(a, b, **kwargs):
     >>> res.shape == (2,2)
     True
     >>> res
-    array([[  30.,   70.],
-           [ 278.,  382.]])
+    array([[ 30.,  70.],
+           [278., 382.]])
 
     """
     return _impl.matvec_multiply(a, b, **kwargs)
@@ -349,8 +349,8 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
     >>> res.shape == (2, 2)
     True
     >>> res
-    array([[  4.,   6.],
-           [  9.,  12.]])
+    array([[ 4.,  6.],
+           [ 9., 12.]])
 
     """
     if conjugate:
@@ -401,8 +401,17 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
 
     Examples
     --------
-    TODO
-
+    >>> a = np.array([[1., 0.],
+    ...               [0., -2.],
+    ...               [2., 3.]])
+    >>> c = np.zeros((3, 3))
+    >>> res = update_rankk(a, c)
+    >>> res.shape == (3, 3)
+    True
+    >>> res
+    array([[ 1.,  0.,  2.],
+           [ 0.,  4., -6.],
+           [ 0.,  0., 13.]])
     """
     uplo_choices = ['U', 'L']
     transpose_choices = ['N', 'T', 'C']
@@ -421,14 +430,14 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
             "complex-value support not currently implemented")
 
     if transpose_type == 'T':
-        if UPLO == 'U':
-            gufunc = _impl.update_rankk_up_transpose
-        else:
-            gufunc = _impl.update_rankk_down_transpose
+        # transpose the input and then call with transpose_type='N'
+        a = a.swapaxes(-1, -2)  # tranpose the last two dimensions
+        transpose_type = 'N'
     elif transpose_type == 'C':
         # gufunc = _impl.update_rank1_conjugate
         raise NotImplementedError("transpose_type='C' unimplemented")
-    elif transpose_type == 'N':
+
+    if transpose_type == 'N':
         if UPLO == 'U':
             gufunc = _impl.update_rankk_up
         else:

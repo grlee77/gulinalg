@@ -18,7 +18,7 @@ matrix:
   # no numpy 1.10 on python 3.6 in miniconda.
   - python: "3.6"
     env: NUMPY_VERSION='1.10'
-    
+
 install:
   # Install Miniconda
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then

@@ -20,7 +20,7 @@ class TestInverseTriangular(TestCase):
         """
         a = np.array([[3, 0, 0, 0], [2, 1, 0, 0], [1, 0, 1, 0], [1, 1, 1, 1]])
         inva = gulinalg.inv_triangular(a)
-        assert_allclose(np.dot(a, inva), np.identity(4))
+        assert_allclose(np.dot(a, inva), np.identity(4), atol=1e-15)
 
     def test_lower_triangular_unit_diagonal(self):
         """
@@ -37,7 +37,7 @@ class TestInverseTriangular(TestCase):
         # is. So change those diagonal elements to 1 before comparing against
         # inverse of a unit diagonal matrix.
         np.fill_diagonal(inva, 1)
-        assert_allclose(inva, inva_unit)
+        assert_allclose(inva, inva_unit, atol=1e-15)
 
     def test_upper_triangular_non_unit_diagonal(self):
         """
@@ -45,7 +45,7 @@ class TestInverseTriangular(TestCase):
         """
         a = np.array([[1, 2, 3, 4], [0, 2, 3, 4], [0, 0, 3, 4], [0, 0, 0, 4]])
         inva = gulinalg.inv_triangular(a, UPLO='U')
-        assert_allclose(np.dot(a, inva), np.identity(4))
+        assert_allclose(np.dot(a, inva), np.identity(4), atol=1e-15)
 
     def test_upper_triangular_unit_diagonal(self):
         """
@@ -62,7 +62,7 @@ class TestInverseTriangular(TestCase):
         # is. So change those diagonal elements to 1 before comparing against
         # inverse of a unit diagonal matrix.
         np.fill_diagonal(inva, 1)
-        assert_allclose(inva, inva_unit)
+        assert_allclose(inva, inva_unit, atol=1e-15)
 
     def test_upper_for_complex_type(self):
         """Test A' where A's data type is complex"""

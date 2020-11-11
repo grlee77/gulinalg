@@ -8,7 +8,7 @@ jobs:
     - os: linux
       python: 2.7
       env:
-        - NUMPY_VERSION=1.13
+        - NUMPY_VERSION=1.14
     - os: linux
       python: 2.7
       env:

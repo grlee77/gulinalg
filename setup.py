@@ -51,9 +51,20 @@ for key, val in npymath_info.items():
         extra_opts[key] = copy.deepcopy(val)
 
 
+extra_compile_args = []
+extra_link_args = []
+USE_OPENMP = True  # TODO: try compilation of test function to determine
+if USE_OPENMP:
+    # TODO: set compiler/platform-dependent values
+    extra_opts['libraries'] += ['gomp']
+    extra_compile_args += ['-fopenmp']
+    extra_link_args += ['-fopenmp']
+
 gufunc_module = Extension('gulinalg._impl',
                           sources = MODULE_SOURCES,
                           depends = MODULE_DEPENDENCIES,
+                          extra_compile_args=extra_compile_args,
+                          extra_link_args=extra_link_args,
                           **extra_opts)
 
 packages = [

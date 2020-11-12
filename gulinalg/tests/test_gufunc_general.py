@@ -577,7 +577,7 @@ class TestSyrk(TestCase):
                 assert_(r.dtype == a.dtype)
 
     def test_syrk_broadcasted(self):
-        nstack = 1
+        nstack = 16
         for sym_out in [False, True]:
             gufunc = partial(gulinalg.update_rankk, sym_out=sym_out)
             for a_trans in [True, False]:
@@ -661,7 +661,7 @@ class TestSyrk(TestCase):
                     assert_(r.dtype == a.dtype)
 
     def test_syrk_no_c_broadcasted(self):
-        nstack = 1
+        nstack = 16
         for sym_out in [False, True]:
             gufunc = partial(gulinalg.update_rankk, sym_out=sym_out)
             for a_trans in [True, False]:
@@ -712,7 +712,6 @@ class TestSyrk(TestCase):
                         else:
                             assert_allclose(np.tril(expected), r[i])
                     assert_(r.dtype == a.dtype)
-
 
     def test_syrk_wrong_shape(self):
         nstack = 3

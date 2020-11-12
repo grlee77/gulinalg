@@ -1,24 +1,27 @@
 language: python
+os: linux
 
-dist: precise
-sudo: false
+dist: xenial
 
-python:
-  - "2.7"
-  - "3.6"
+jobs:
+  include:
+    - os: linux
+      python: 2.7
+      env:
+        - NUMPY_VERSION=1.14
+    - os: linux
+      python: 2.7
+      env:
+        - NUMPY_VERSION=1.16
+    - os: linux
+      python: 3.6
+      env:
+        - NUMPY_VERSION=1.16
+    - os: linux
+      python: 3.8
+      env:
+        - NUMPY_VERSION=1.19
 
-env:
-  - NUMPY_VERSION='1.10'
-  - NUMPY_VERSION='1.12'
-  - NUMPY_VERSION='1.13'
-
-
-matrix:
-  exclude:
-  # no numpy 1.10 on python 3.6 in miniconda.
-  - python: "3.6"
-    env: NUMPY_VERSION='1.10'
-    
 install:
   # Install Miniconda
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then

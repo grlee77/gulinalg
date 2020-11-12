@@ -26,21 +26,21 @@ class TestSolveTriangular(TestCase):
         a = np.array([[3, 0, 0, 0], [2, 1, 0, 0], [1, 0, 1, 0], [1, 1, 1, 1]])
         b = np.array([4, 2, 4, 2])
         x = gulinalg.solve_triangular(a, b)
-        assert_allclose(np.dot(a, x), b)
+        assert_allclose(np.dot(a, x), b, atol=1e-15)
 
     def test_UP_TRANS_N_DIAG_N(self):
         """Test A * x = B where A is a upper triangular matrix"""
         a = np.array([[1, 2, 3, 4], [0, 2, 3, 4], [0, 0, 3, 4], [0, 0, 0, 4]])
         b = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]])
         x = gulinalg.solve_triangular(a, b, UPLO='U')
-        assert_allclose(np.dot(a, x), b)
+        assert_allclose(np.dot(a, x), b, atol=1e-15)
 
     def test_UP_TRANS_T_DIAG_N(self):
         """Test A.T * x = B where A is a upper triangular matrix"""
         a = np.array([[1, 2, 3, 4], [0, 2, 3, 4], [0, 0, 3, 4], [0, 0, 0, 4]])
         b = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]])
         x = gulinalg.solve_triangular(a, b, UPLO='U', transpose_type='T')
-        assert_allclose(np.dot(a.T, x), b)
+        assert_allclose(np.dot(a.T, x), b, atol=1e-15)
 
     def test_UP_TRANS_C_DIAG_N(self):
         """Test A.H * x = B where A is a upper triangular matrix"""
@@ -48,7 +48,7 @@ class TestSolveTriangular(TestCase):
         b = np.array([[1 + 0j, 0], [0, 1 + 0j]])
         ref = np.array([[0.2+0.4j, -0.0+0.j], [-0.4-0.8j, 0.5+0.5j]])
         x = gulinalg.solve_triangular(a, b, UPLO='U', transpose_type='C')
-        assert_allclose(x, ref)
+        assert_allclose(x, ref, atol=1e-15)
 
     def test_UP_TRANS_N_DIAG_U(self):
         """
@@ -62,7 +62,7 @@ class TestSolveTriangular(TestCase):
         a_unit_diag = np.array([[1, 2, 3, 4], [0, 1, 3, 4],
                                 [0, 0, 1, 4], [0, 0, 0, 1]])
         ref = gulinalg.solve_triangular(a_unit_diag, b, UPLO='U')
-        assert_allclose(res, ref)
+        assert_allclose(res, ref, atol=1e-15)
 
     def test_UP_TRANS_T_DIAG_U(self):
         """
@@ -78,7 +78,7 @@ class TestSolveTriangular(TestCase):
                                 [0, 0, 1, 4], [0, 0, 0, 1]])
         ref = gulinalg.solve_triangular(
             a_unit_diag, b, UPLO='U', transpose_type='T')
-        assert_allclose(res, ref)
+        assert_allclose(res, ref, atol=1e-15)
 
     def test_UP_TRANS_C_DIAG_U(self):
         """
@@ -93,7 +93,7 @@ class TestSolveTriangular(TestCase):
         a_unit_diag = np.array([[1, 2 + 2j], [0, 1]])
         ref = gulinalg.solve_triangular(
             a_unit_diag, b, UPLO='U', transpose_type='C')
-        assert_allclose(res, ref)
+        assert_allclose(res, ref, atol=1e-15)
 
     def test_fortran_layout_matrix(self):
         """Input matrices have fortran layout"""
@@ -108,7 +108,7 @@ class TestSolveTriangular(TestCase):
         ref = gulinalg.solve_triangular(
             a_unit_diag, b, UPLO='U', transpose_type='T'
         )
-        assert_allclose(res, ref)
+        assert_allclose(res, ref, atol=1e-15)
 
     def test_input_matrix_non_contiguous(self):
         """Input matrix is not a contiguous matrix"""
@@ -118,7 +118,7 @@ class TestSolveTriangular(TestCase):
         b = np.ascontiguousarray([[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]])
         assert not a.flags.c_contiguous and not a.flags.f_contiguous
         x = gulinalg.solve_triangular(a, b, UPLO='U')
-        assert_allclose(np.dot(a, x), b)
+        assert_allclose(np.dot(a, x), b, atol=1e-15)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -129,7 +129,7 @@ class TestSolveTriangular(TestCase):
         b = np.ascontiguousarray(np.random.randn(0, 0))
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (0, 0)
-        assert_allclose(np.dot(a, x), b)
+        assert_allclose(np.dot(a, x), b, atol=1e-15)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -140,7 +140,7 @@ class TestSolveTriangular(TestCase):
         b = np.ascontiguousarray(np.random.randn(0, 2))
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (0, 2)
-        assert_allclose(np.dot(a, x), b)
+        assert_allclose(np.dot(a, x), b, atol=1e-15)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -151,7 +151,7 @@ class TestSolveTriangular(TestCase):
         b = np.ascontiguousarray(np.random.randn(2, 0))
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (2, 0)
-        assert_allclose(np.dot(a, x), b)
+        assert_allclose(np.dot(a, x), b, atol=1e-15)
 
     def test_size_one_matrices(self):
         """Corner case of decomposing where m = 1 and n = 1"""
@@ -159,7 +159,7 @@ class TestSolveTriangular(TestCase):
         b = np.ascontiguousarray(np.random.randn(1, 1))
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (1, 1)
-        assert_allclose(np.dot(a, x), b)
+        assert_allclose(np.dot(a, x), b, atol=1e-15)
 
     def test_vector(self):
         """test vectorized solve triangular"""
@@ -169,7 +169,7 @@ class TestSolveTriangular(TestCase):
                                 [0, 0, 1], [0, 0, 0]]) for _ in range(10)])
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         res = np.stack([np.dot(a[i], x[i]) for i in range(len(a))])
-        assert_allclose(res, b)
+        assert_allclose(res, b, atol=1e-15)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -181,7 +181,7 @@ class TestSolveTriangular(TestCase):
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (10, 0, 0)
         res = np.stack([np.dot(a[i], x[i]) for i in range(len(a))])
-        assert_allclose(res, b)
+        assert_allclose(res, b, atol=1e-15)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -193,7 +193,7 @@ class TestSolveTriangular(TestCase):
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (10, 0, 2)
         res = np.stack([np.dot(a[i], x[i]) for i in range(len(a))])
-        assert_allclose(res, b)
+        assert_allclose(res, b, atol=1e-15)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -205,7 +205,7 @@ class TestSolveTriangular(TestCase):
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (10, 2, 0)
         res = np.stack([np.dot(a[i], x[i]) for i in range(len(a))])
-        assert_allclose(res, b)
+        assert_allclose(res, b, atol=1e-15)
 
     def test_vector_size_one_matrices(self):
         """Corner case of solving where m = 1 and n = 1"""
@@ -214,7 +214,7 @@ class TestSolveTriangular(TestCase):
         x = gulinalg.solve_triangular(a, b, UPLO='U')
         assert x.shape == (10, 1, 1)
         res = np.stack([np.dot(a[i], x[i]) for i in range(len(a))])
-        assert_allclose(res, b)
+        assert_allclose(res, b, atol=1e-15)
 
     def test_nan_handling(self):
         """NaN in one output shouldn't contaminate remaining outputs"""
@@ -224,7 +224,7 @@ class TestSolveTriangular(TestCase):
         ref = np.array([[1.33333333, np.nan, np.nan],
                         [1.33333333, -0.66666667,  2.66666667]])
         res = gulinalg.solve_triangular(a, b)
-        assert_allclose(res, ref)
+        assert_allclose(res, ref, atol=1e-15)
 
     def test_infinity_handling(self):
         """Infinity in one output shouldn't contaminate remaining outputs"""
@@ -234,7 +234,7 @@ class TestSolveTriangular(TestCase):
         ref = np.array([[1.33333333, -np.inf, np.nan],
                         [1.33333333, -0.66666667,  2.66666667]])
         res = gulinalg.solve_triangular(a, b)
-        assert_allclose(res, ref)
+        assert_allclose(res, ref, atol=1e-15)
 
 
 if __name__ == '__main__':

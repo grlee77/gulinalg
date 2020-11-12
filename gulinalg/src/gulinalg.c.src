@@ -3664,14 +3664,19 @@ init_@lapack_func@(GEQRF_PARAMS_t *params, fortran_int M, fortran_int N)
     @ftyp@ work;
     fortran_int lwork = -1;
     fortran_int info;
-    LAPACK(@lapack_func@)(&M, &N, NULL, &M, NULL, &work, &lwork, &info);
+
+    // if N or M is 0 set it to 1. This was required to avoid an error when
+    // testing with OpenBLAS
+    fortran_int N_ = N > 0 ? N : 1;
+    fortran_int M_ = M > 0 ? M : 1;
+    LAPACK(@lapack_func@)(&M_, &N_, NULL, &M_, NULL, &work, &lwork, &info);
     if (info != 0) {
         memset(params, 0, sizeof(*params));
         return 0;
     }
 
-    fortran_int min_m_n = M < N ? M : N;
-    size_t a_size       = M * N * sizeof(@ftyp@);
+    fortran_int min_m_n = M_ < N_ ? M_ : N_;
+    size_t a_size       = M_ * N_ * sizeof(@ftyp@);
     size_t tau_size     = min_m_n * sizeof(@ftyp@);
     size_t work_size    = (size_t)*(@fbasetyp@*)&work * sizeof(@ftyp@);
     npy_uint8 *mem_buff = malloc(a_size + tau_size + work_size);
@@ -3682,9 +3687,9 @@ init_@lapack_func@(GEQRF_PARAMS_t *params, fortran_int M, fortran_int N)
     params->A     = mem_buff;
     params->TAU   = mem_buff + a_size;
     params->WORK  = mem_buff + a_size + tau_size;
-    params->M     = M;
-    params->N     = N;
-    params->LDA   = M;
+    params->M     = M_;
+    params->N     = N_;
+    params->LDA   = M_;
     params->LWORK = work_size;
 
     return 1;

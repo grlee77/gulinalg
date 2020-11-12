@@ -16,6 +16,8 @@
 #include <assert.h>
 #include <math.h>
 
+#include <omp.h>
+
 #ifdef _MSC_VER
 /* in Microsoft's C compiler "inline" is not valid, use "__inline" instead*/
 #  define inline __inline
@@ -2114,6 +2116,8 @@ typedef struct syrk_params_struct
 {
     void *A;
     void *C;
+    fortran_int A_size_bytes;
+    fortran_int C_size_bytes;
     fortran_int N;
     fortran_int K;
     fortran_int LDA;
@@ -2127,18 +2131,22 @@ init_syrk_params(SYRK_PARAMS_t *params,
                  char trans,
                  npy_intp* steps,
                  size_t sot,
-                 int no_C)
+                 int no_C,
+                 int omp_threads)
 {
     size_t a_size = n * k * sot;
     size_t c_size = no_C ? 0 : n * n * sot;
-    npy_uint8 *mem_buff = malloc(a_size + c_size);
+    params->A_size_bytes = a_size;
+    params->C_size_bytes = c_size;
+
+    npy_uint8 *mem_buff = malloc((a_size + c_size) * omp_threads);
     if (!mem_buff) {
         memset(params, 0, sizeof(*params));
         return 0;
     }
 
     params->A = mem_buff;
-    params->C = no_C ? NULL: mem_buff + a_size;
+    params->C = no_C ? NULL: mem_buff + a_size * omp_threads;
     if (trans=='N'){
         params->LDA = n;  // must be at least max(1, n)
     } else {
@@ -2201,16 +2209,48 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    if (init_syrk_params(&params, n, k, trans, steps, sot, 0))
+    int orig_threads;
+    #pragma omp parallel
+    {
+        if (omp_get_thread_num() == 0)
+        {
+            orig_threads = omp_get_num_threads();
+        }
+    }
+
+    int max_threads = omp_get_max_threads();
+    int nthreads = max_threads < dN ? max_threads : dN;
+    omp_set_num_threads(nthreads);
+    // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
+    if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, 0))
     {
         LINEARIZE_DATA_t a_in, c_in, r_out;
         init_linearize_data(&a_in, k, n, steps[1], steps[0]);
         init_linearize_data(&c_in, n, n, steps[3], steps[2]);
         init_linearize_data(&r_out, n, n, steps[5], steps[4]);
 
-        BEGIN_OUTER_LOOP_3
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.C, args[1], &c_in);
+        /* Don't use BEGIN_OUTPUT_LOOP3 template as we need to increment
+         * offsets on a per-thread basis in the parallel for loop instead
+         */
+
+        // printf("omp_get_num_threads (outer) = %d\n", omp_get_num_threads());
+
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+
+            // printf("omp_get_num_threads = %d\n", omp_get_num_threads());
+            /* With OpenMP threads, params.A is size n * k * threads
+             *                      params.C is size n * n * threads
+             * To avoid thread conflicts, A, C point to a specific offset for
+             * each thread
+             */
+            int ID = omp_get_thread_num();
+            // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *C = (void*)((char*)params.C + params.C_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            linearize_@TYPE@_matrix(C, args[1] + s1 * N_, &c_in);
 
             /*
              * To get rank-k update, invoke syrk_.
@@ -2223,21 +2263,22 @@ static void
                            &params.N,
                            &params.K,
                            (void*)&@one@, // alpha (default=1.0)
-                           params.A,
+                           A,
                            &params.LDA,
                            (void*)&@one@, // beta (default=1.0)
-                           params.C,
+                           C,
                            &params.LDC);
 
             /* Copy Fortran matrix returned by SYRK to output argument */
             if (symmetric)
             {
-                make_symmetric_@TYPE@_matrix(uplo, params.N, params.C);
+                make_symmetric_@TYPE@_matrix(uplo, params.N, C);
             }
-            delinearize_@TYPE@_matrix(args[2], params.C, &r_out);
+            delinearize_@TYPE@_matrix(args[2] + s2 * N_, C, &r_out);
         END_OUTER_LOOP
 
         release_syrk_params(&params);
+        omp_set_num_threads(orig_threads);
     }
 }
 
@@ -2305,31 +2346,46 @@ static void
 
     size_t sot = sizeof(@typ@);
 
+    int orig_threads;
+    #pragma omp parallel
+    {
+        if (omp_get_thread_num() == 0)
+        {
+            orig_threads = omp_get_num_threads();
+        }
+    }
+
+    int max_threads = omp_get_max_threads();
+    int nthreads = max_threads < dN ? max_threads : dN;
+    omp_set_num_threads(nthreads);
 
     int avoid_C_allocation = 1;
-    if (init_syrk_params(&params, n, k, trans, steps, sot, avoid_C_allocation))
+    if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, avoid_C_allocation))
     {
         LINEARIZE_DATA_t a_in, r_out;
         init_linearize_data(&a_in, k, n, steps[1], steps[0]);
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
 
-        BEGIN_OUTER_LOOP_2
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            int ID = omp_get_thread_num();
+            // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
+            void *A = params.A + params.A_size_bytes * ID;
 
-
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             // params.C will be NULL: called init_syrk_params with no_C=1
             void *pC;
             if (avoid_C_allocation)
             {
                 // operate on the output array directly
-                zero_@TYPE@_matrix(args[1], &r_out);
+                zero_@TYPE@_matrix(args[1] + s1 * N_, &r_out);
                 pC = args[1];
             } else {
-                linearize_@TYPE@_matrix(params.C, args[1], &a_in);
+                linearize_@TYPE@_matrix(params.C, args[1] + s1 * N_, &a_in);
                 zero_@TYPE@_matrix(params.C, &r_out);
                 pC = params.C;
             }
-
 
             /*
              * To get rank-k update, invoke syrk_.
@@ -2358,11 +2414,12 @@ static void
              * out.swapaxes(-2, -1) in the Python caller
              */
             if (avoid_C_allocation == 0) {
-                delinearize_@TYPE@_matrix(args[1], params.C, &r_out);
+                delinearize_@TYPE@_matrix(args[1] + s1 * N_, pC, &r_out);
             }
         END_OUTER_LOOP
 
         release_syrk_params(&params);
+        omp_set_num_threads(orig_threads);
     }
 }
 

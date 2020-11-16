@@ -2246,8 +2246,8 @@ static void
              */
             int ID = omp_get_thread_num();
             // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
-            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
-            void *C = (void*)((char*)params.C + params.C_size_bytes * ID);
+            void *A = params.A + params.A_size_bytes * ID;
+            void *C = params.C + params.C_size_bytes * ID;
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             linearize_@TYPE@_matrix(C, args[1] + s1 * N_, &c_in);
@@ -3052,6 +3052,10 @@ typedef struct gesv_params_struct
     void *B; /* B is (N,NRHS) of base type */
     fortran_int * IPIV; /* IPIV is (N) */
 
+    fortran_int A_size_bytes;
+    fortran_int B_size_bytes;
+    fortran_int IPIV_size_bytes;
+
     fortran_int N;
     fortran_int NRHS;
     fortran_int LDA;
@@ -3070,18 +3074,23 @@ typedef struct gesv_params_struct
  * Handles buffer allocation
  */
 static inline int
-init_@lapack_func@(GESV_PARAMS_t *params, fortran_int N, fortran_int NRHS)
+init_@lapack_func@(GESV_PARAMS_t *params, fortran_int N, fortran_int NRHS,
+                   int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *a, *b, *ipiv;
-    mem_buff = malloc(N*N*sizeof(@ftyp@) +
-                      N*NRHS*sizeof(@ftyp@) +
-                      N*sizeof(fortran_int));
+    params->A_size_bytes = N*N*sizeof(@ftyp@);
+    params->B_size_bytes = N*NRHS*sizeof(@ftyp@);
+    params->IPIV_size_bytes = N*sizeof(fortran_int);
+
+    mem_buff = malloc(params->A_size_bytes*omp_threads +
+                      params->B_size_bytes*omp_threads +
+                      params->IPIV_size_bytes*omp_threads);
     if (!mem_buff)
         goto error;
     a = mem_buff;
-    b = a + N*N*sizeof(@ftyp@);
-    ipiv = b + N*NRHS*sizeof(@ftyp@);
+    b = a + params->A_size_bytes*omp_threads;
+    ipiv = b + params->B_size_bytes*omp_threads;
 
     params->A = a;
     params->B = b;
@@ -3108,13 +3117,13 @@ release_@lapack_func@(GESV_PARAMS_t *params)
 }
 
 static inline fortran_int
-call_@lapack_func@(GESV_PARAMS_t *params)
+call_@lapack_func@(GESV_PARAMS_t *params, void *A, void *B, fortran_int *IPIV)
 {
     fortran_int rv;
     LAPACK(@lapack_func@)(&params->N, &params->NRHS,
-                          params->A, &params->LDA,
-                          params->IPIV,
-                          params->B, &params->LDB,
+                          A, &params->LDA,
+                          IPIV,
+                          B, &params->LDB,
                           &rv);
     return rv;
 }
@@ -3128,29 +3137,52 @@ static void
     int error_occurred = get_fp_invalid_and_clear();
     INIT_OUTER_LOOP_3
 
+    int orig_threads;
+    #pragma omp parallel
+    {
+        if (omp_get_thread_num() == 0)
+        {
+            orig_threads = omp_get_num_threads();
+        }
+    }
+
+    int max_threads = omp_get_max_threads();
+    int nthreads = max_threads < dN ? max_threads : dN;
+    omp_set_num_threads(nthreads);
+    // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
+
     n = (fortran_int)dimensions[0];
     nrhs = (fortran_int)dimensions[1];
-    if (init_@lapack_func@(&params, n, nrhs)) {
+    if (init_@lapack_func@(&params, n, nrhs, nthreads)) {
         LINEARIZE_DATA_t a_in, b_in, r_out;
 
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&b_in, nrhs, n, steps[3], steps[2]);
         init_linearize_data(&r_out, nrhs, n, steps[5], steps[4]);
 
-        BEGIN_OUTER_LOOP_3
+        // BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads) schedule(static)
+        for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.B, args[1], &b_in);
-            not_ok =call_@lapack_func@(&params);
+            int id = omp_get_thread_num();
+            // printf("N_ = %d, thread ID = %d\n", (int)N_, id);
+            void *A = params.A + params.A_size_bytes * id;
+            void *B = params.B + params.B_size_bytes * id;
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * id);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
+            not_ok =call_@lapack_func@(&params, A, B, IPIV);
             if (!not_ok) {
-                delinearize_@TYPE@_matrix(args[2], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[2], &r_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &r_out);
             }
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
+        omp_set_num_threads(orig_threads);
     }
 
     set_fp_invalid_or_clear(error_occurred);
@@ -3165,27 +3197,50 @@ static void
     fortran_int n;
     INIT_OUTER_LOOP_3
 
+    int orig_threads;
+    #pragma omp parallel
+    {
+        if (omp_get_thread_num() == 0)
+        {
+            orig_threads = omp_get_num_threads();
+        }
+    }
+
+    int max_threads = omp_get_max_threads();
+    int nthreads = max_threads < dN ? max_threads : dN;
+    omp_set_num_threads(nthreads);
+    // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
+
     n = (fortran_int)dimensions[0];
-    if (init_@lapack_func@(&params, n, 1)) {
+    if (init_@lapack_func@(&params, n, 1, nthreads)) {
         LINEARIZE_DATA_t a_in, b_in, r_out;
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&b_in, 1, n, 1, steps[2]);
         init_linearize_data(&r_out, 1, n, 1, steps[3]);
 
-        BEGIN_OUTER_LOOP_3
+        // BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.B, args[1], &b_in);
-            not_ok = call_@lapack_func@(&params);
+            int id = omp_get_thread_num();
+            // printf("N_ = %d, thread ID = %d\n", (int)N_, id);
+            void *A = params.A + params.A_size_bytes * id;
+            void *B = params.B + params.B_size_bytes * id;
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * id);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
+            not_ok = call_@lapack_func@(&params, A, B, IPIV);
             if (!not_ok) {
-                delinearize_@TYPE@_matrix(args[2], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[2], &r_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &r_out);
             }
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
+        omp_set_num_threads(orig_threads);
     }
 
     set_fp_invalid_or_clear(error_occurred);
@@ -3200,22 +3255,43 @@ static void
     int error_occurred = get_fp_invalid_and_clear();
     INIT_OUTER_LOOP_2
 
+    int orig_threads;
+    #pragma omp parallel
+    {
+        if (omp_get_thread_num() == 0)
+        {
+            orig_threads = omp_get_num_threads();
+        }
+    }
+
+    int max_threads = omp_get_max_threads();
+    int nthreads = max_threads < dN ? max_threads : dN;
+    omp_set_num_threads(nthreads);
+    // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
+
     n = (fortran_int)dimensions[0];
-    if (init_@lapack_func@(&params, n, n)) {
+    if (init_@lapack_func@(&params, n, n, nthreads)) {
         LINEARIZE_DATA_t a_in, r_out;
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
 
-        BEGIN_OUTER_LOOP_2
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            identity_@TYPE@_matrix(params.B, n);
-            not_ok = call_@lapack_func@(&params);
+            int id = omp_get_thread_num();
+            void *A = params.A + params.A_size_bytes * id;
+            void *B = params.B + params.B_size_bytes * id;
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * id);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            identity_@TYPE@_matrix(B, n);
+            not_ok = call_@lapack_func@(&params, A, B, IPIV);
             if (!not_ok) {
-                delinearize_@TYPE@_matrix(args[1], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[1] + s1 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[1], &r_out);
+                nan_@TYPE@_matrix(args[1] + s1 * N_, &r_out);
             }
         END_OUTER_LOOP
 
@@ -3223,6 +3299,7 @@ static void
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    omp_set_num_threads(orig_threads);
 }
 
 /**end repeat**/
@@ -5346,18 +5423,18 @@ init_@lapack_func@(POTRS_PARAMS_t *params,
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *a, *b;
-    size_t a_size1, b_size1, a_size, b_size;
+    size_t a_size, b_size;
 
-    a_size = N*N*omp_threads*sizeof(@ftyp@);
-    b_size = N*NRHS*omp_threads*sizeof(@ftyp@);
+    a_size = N*N*sizeof(@ftyp@);
+    b_size = N*NRHS*sizeof(@ftyp@);
     params->A_size_bytes = a_size;
     params->B_size_bytes = b_size;
-    mem_buff = malloc(a_size + b_size);
+    mem_buff = malloc(a_size*omp_threads + b_size*omp_threads);
     if (!mem_buff)
       goto error;
 
     a = mem_buff;
-    b = a + a_size;
+    b = a + a_size*omp_threads;
 
     params->A = (void*)a;
     params->B = (void*)b;
@@ -5370,6 +5447,7 @@ init_@lapack_func@(POTRS_PARAMS_t *params,
     return 1;
 
  error:
+    printf("init allocation error\n");
     free(mem_buff);
     memset(params, 0, sizeof(*params));
 
@@ -5455,8 +5533,8 @@ static void
 
             int id = omp_get_thread_num();
             // printf("N_ = %d, thread ID = %d\n", (int)N_, id);
-            void *A = (void*)((char*)params.A + params.A_size_bytes * id);
-            void *B = (void*)((char*)params.B + params.B_size_bytes * id);
+            void *A = params.A + params.A_size_bytes * id;
+            void *B = params.B + params.B_size_bytes * id;
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);

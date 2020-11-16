@@ -1,12 +1,22 @@
 from __future__ import division, print_function, absolute_import
 
+import copy
+import os
+import platform
+import sys
+
+
 # note that this package depends on NumPy's distutils. It also
 # piggy-backs on NumPy configuration in order to link agains the
 # appropriate BLAS/LAPACK implementation.
 from numpy.distutils.core import setup, Extension
 from numpy.distutils import system_info as np_sys_info
 from numpy.distutils import misc_util as np_misc_util
-import os, sys, copy
+from setup_helpers import add_flag_checking
+try:
+    from setuptools.command.build_ext import build_ext
+except ImportError:
+    from distutils.command.build_ext import build_ext
 
 import versioneer
 
@@ -18,7 +28,8 @@ LAPACK_LITE_PATH = os.path.join(C_SRC_PATH, 'lapack_lite')
 # Use information about the LAPACK library used in NumPy.
 # if not present, fallback to using the included lapack-lite
 
-MODULE_SOURCES = [os.path.join(C_SRC_PATH, 'gulinalg.c.src')]
+MODULE_SOURCES = [os.path.join(C_SRC_PATH, 'gulinalg.c.src'),
+                  os.path.join(C_SRC_PATH, 'conditional_omp.h')]
 MODULE_DEPENDENCIES = copy.copy(MODULE_SOURCES)
 
 lapack_info = np_sys_info.get_info('lapack_opt', 0)
@@ -39,8 +50,6 @@ else:
         MODULE_SOURCES.extend(lapack_lite_files[:1]) # python_xerbla.c
         MODULE_DEPENDENCIES.extend(lapack_lite_files[:1])
 
-
-
 npymath_info = np_misc_util.get_info('npymath')
 extra_opts = copy.deepcopy(lapack_info)
 
@@ -50,15 +59,39 @@ for key, val in npymath_info.items():
     else:
         extra_opts[key] = copy.deepcopy(val)
 
-
 extra_compile_args = []
 extra_link_args = []
-USE_OPENMP = True  # TODO: try compilation of test function to determine
-if USE_OPENMP:
-    # TODO: set compiler/platform-dependent values
-    extra_opts['libraries'] += ['gomp']
-    extra_compile_args += ['-fopenmp']
-    extra_link_args += ['-fopenmp']
+
+cmdclass = versioneer.get_cmdclass()
+
+if "GULINALG_DISABLE_OPENMP" not in os.environ:
+    # OpenMP will be disabled unless omp_test_c below compiles successfully
+    omp_test_c = """#include <omp.h>
+int main(int argc, char** argv) { return(0); }"""
+
+    # OpenMP flags for MSVC
+    msc_flag_defines = [[["/openmp"], [], omp_test_c, "HAVE_VC_OPENMP"]]
+
+    # OpenMP flags for other compilers
+    gcc_flag_defines = [
+        [["-fopenmp"], ["-fopenmp"], omp_test_c, "HAVE_OPENMP"]
+    ]
+
+    flag_defines = (
+        msc_flag_defines
+        if "msc" in platform.python_compiler().lower()
+        else gcc_flag_defines
+    )
+
+    extbuilder = add_flag_checking(build_ext, flag_defines, "gulinalg")
+    cmdclass['build_ext'] = extbuilder
+else:
+    cmdclass['build_ext'] = build_ext
+
+GULINALG_INTEL_OPENMP = 'GULINALG_INTEL_OPENMP' in os.environ
+if GULINALG_INTEL_OPENMP:
+    # Link to Intel OpenMP library (instead of libgomp default for GCC)
+    extra_opts['libraries'] += ['iomp5']
 
 gufunc_module = Extension('gulinalg._impl',
                           sources = MODULE_SOURCES,
@@ -84,5 +117,5 @@ setup(name='gulinalg',
       packages=packages,
       license='BSD',
       long_description=open('README.md').read(),
-      cmdclass=versioneer.get_cmdclass()
+      cmdclass=cmdclass,
 )

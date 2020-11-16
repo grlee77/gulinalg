@@ -16,7 +16,7 @@
 #include <assert.h>
 #include <math.h>
 
-#include <omp.h>
+#include "conditional_omp.h"
 
 #ifdef _MSC_VER
 /* in Microsoft's C compiler "inline" is not valid, use "__inline" instead*/
@@ -1060,6 +1060,13 @@ dump_@TYPE@_matrix(const char* name,
              args[5] += s5) {
 
 #define END_OUTER_LOOP  }
+
+#define OMP_SET_ID \
+    int ID;\
+        if (have_openmp)\
+            ID = omp_get_thread_num();\
+        else\
+            ID = 0;
 
 static inline void
 update_pointers(npy_uint8** bases, ptrdiff_t* offsets, size_t count)
@@ -2209,19 +2216,22 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    int orig_threads;
-    #pragma omp parallel
+    int max_threads=1, nthreads=1, orig_threads=1;
+    if (have_openmp)
     {
-        if (omp_get_thread_num() == 0)
+        #pragma omp parallel
         {
-            orig_threads = omp_get_num_threads();
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
         }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+        // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
     }
 
-    int max_threads = omp_get_max_threads();
-    int nthreads = max_threads < dN ? max_threads : dN;
-    omp_set_num_threads(nthreads);
-    // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
     if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, 0))
     {
         LINEARIZE_DATA_t a_in, c_in, r_out;
@@ -2229,11 +2239,9 @@ static void
         init_linearize_data(&c_in, n, n, steps[3], steps[2]);
         init_linearize_data(&r_out, n, n, steps[5], steps[4]);
 
-        /* Don't use BEGIN_OUTPUT_LOOP3 template as we need to increment
+        /* Don't use BEGIN_OUTER_LOOP3 template as we need to increment
          * offsets on a per-thread basis in the parallel for loop instead
          */
-
-        // printf("omp_get_num_threads (outer) = %d\n", omp_get_num_threads());
 
         #pragma omp parallel for num_threads(nthreads)
         for (N_ = 0; N_ < dN; N_++) {
@@ -2244,7 +2252,9 @@ static void
              * To avoid thread conflicts, A, C point to a specific offset for
              * each thread
              */
-            int ID = omp_get_thread_num();
+
+            OMP_SET_ID
+
             // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
             void *A = params.A + params.A_size_bytes * ID;
             void *C = params.C + params.C_size_bytes * ID;
@@ -2278,7 +2288,8 @@ static void
         END_OUTER_LOOP
 
         release_syrk_params(&params);
-        omp_set_num_threads(orig_threads);
+        if (have_openmp)
+            omp_set_num_threads(orig_threads);
     }
 }
 
@@ -2346,18 +2357,21 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    int orig_threads;
-    #pragma omp parallel
+    int max_threads=1, nthreads=1, orig_threads=1;
+    if (have_openmp)
     {
-        if (omp_get_thread_num() == 0)
+        #pragma omp parallel
         {
-            orig_threads = omp_get_num_threads();
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
         }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+        // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
     }
-
-    int max_threads = omp_get_max_threads();
-    int nthreads = max_threads < dN ? max_threads : dN;
-    omp_set_num_threads(nthreads);
 
     int avoid_C_allocation = 1;
     if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, avoid_C_allocation))
@@ -2369,8 +2383,7 @@ static void
         //BEGIN_OUTER_LOOP_2
         #pragma omp parallel for num_threads(nthreads)
         for (N_ = 0; N_ < dN; N_++) {
-            int ID = omp_get_thread_num();
-            // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
+            OMP_SET_ID
             void *A = params.A + params.A_size_bytes * ID;
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
@@ -2419,7 +2432,8 @@ static void
         END_OUTER_LOOP
 
         release_syrk_params(&params);
-        omp_set_num_threads(orig_threads);
+        if (have_openmp)
+            omp_set_num_threads(orig_threads);
     }
 }
 
@@ -3164,11 +3178,13 @@ static void
         #pragma omp parallel for num_threads(nthreads) schedule(static)
         for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            int id = omp_get_thread_num();
-            // printf("N_ = %d, thread ID = %d\n", (int)N_, id);
-            void *A = params.A + params.A_size_bytes * id;
-            void *B = params.B + params.B_size_bytes * id;
-            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * id);
+
+            OMP_SET_ID
+
+            // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
+            void *A = params.A + params.A_size_bytes * ID;
+            void *B = params.B + params.B_size_bytes * ID;
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
@@ -3222,11 +3238,11 @@ static void
         #pragma omp parallel for num_threads(nthreads)
         for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            int id = omp_get_thread_num();
-            // printf("N_ = %d, thread ID = %d\n", (int)N_, id);
-            void *A = params.A + params.A_size_bytes * id;
-            void *B = params.B + params.B_size_bytes * id;
-            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * id);
+            OMP_SET_ID
+            // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
+            void *A = params.A + params.A_size_bytes * ID;
+            void *B = params.B + params.B_size_bytes * ID;
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
@@ -3279,10 +3295,10 @@ static void
         #pragma omp parallel for num_threads(nthreads)
         for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            int id = omp_get_thread_num();
-            void *A = params.A + params.A_size_bytes * id;
-            void *B = params.B + params.B_size_bytes * id;
-            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * id);
+            OMP_SET_ID
+            void *A = params.A + params.A_size_bytes * ID;
+            void *B = params.B + params.B_size_bytes * ID;
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             identity_@TYPE@_matrix(B, n);
@@ -5531,10 +5547,10 @@ static void
         for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
 
-            int id = omp_get_thread_num();
-            // printf("N_ = %d, thread ID = %d\n", (int)N_, id);
-            void *A = params.A + params.A_size_bytes * id;
-            void *B = params.B + params.B_size_bytes * id;
+            OMP_SET_ID
+            // printf("N_ = %d, thread ID = %d\n", (int)N_, ID);
+            void *A = params.A + params.A_size_bytes * ID;
+            void *B = params.B + params.B_size_bytes * ID;
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);

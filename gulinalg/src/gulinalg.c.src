@@ -6918,7 +6918,33 @@ check_strict_fp( void )
 #endif
 
 
+static PyObject *
+Py_set_omp_threads(PyObject *self, PyObject *args)
+{
+    int nthreads;
+    if (!PyArg_ParseTuple(args, "i", &nthreads))
+        return NULL;
+    omp_set_num_threads(nthreads);
+    return PyLong_FromLong(nthreads);
+}
+
+static PyObject *
+Py_get_omp_threads(PyObject *self, PyObject *args)
+{
+    int nthreads = 1;
+    #pragma omp parallel
+    {
+        if (omp_get_thread_num() == 0)
+        {
+            nthreads = omp_get_num_threads();
+        }
+    }
+    return PyLong_FromLong(nthreads);
+}
+
 static PyMethodDef UMath_LinAlgMethods[] = {
+    {"set_omp_threads", (PyCFunction)Py_set_omp_threads, METH_VARARGS, NULL},
+    {"get_omp_threads", (PyCFunction)Py_get_omp_threads, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

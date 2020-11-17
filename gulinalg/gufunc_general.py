@@ -361,7 +361,7 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
     return gufunc(a, b, c, **kwargs)
 
 
-def update_rankk(a, c=None, UPLO='U', transpose_type='N', **kwargs):
+def update_rankk(a, c=None, UPLO='U', transpose_type='T', **kwargs):
     """
     Compute symmteric rank-k update, with broadcasting
 

@@ -6943,8 +6943,8 @@ Py_get_omp_threads(PyObject *self, PyObject *args)
 }
 
 static PyMethodDef UMath_LinAlgMethods[] = {
-    {"set_omp_threads", (PyCFunction)Py_set_omp_threads, METH_VARARGS, NULL},
-    {"get_omp_threads", (PyCFunction)Py_get_omp_threads, METH_VARARGS, NULL},
+    {"set_gufunc_threads", (PyCFunction)Py_set_omp_threads, METH_VARARGS, NULL},
+    {"get_gufunc_threads", (PyCFunction)Py_get_omp_threads, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

@@ -27,7 +27,7 @@ from __future__ import division, absolute_import, print_function
 
 import numpy as np
 from . import _impl
-from .gufunc_general import matrix_multiply
+from .gufunc_general import _check_workers, matrix_multiply
 
 
 def det(a, **kwargs):
@@ -145,7 +145,7 @@ def slogdet(a, **kwargs):
     return _impl.slogdet(a, **kwargs)
 
 
-def inv(a, **kwargs):
+def inv(a, workers=1, **kwargs):
     """
     Compute the (multiplicative) inverse of matrices, with broadcasting.
 
@@ -186,7 +186,14 @@ def inv(a, **kwargs):
     True
 
     """
-    return _impl.inv(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.inv(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
@@ -627,7 +634,7 @@ def eigvalsh(A, UPLO='L', **kw_args):
     return gufunc(A,**kw_args)
 
 
-def solve(A,B,**kw_args):
+def solve(A, B, workers=1, **kw_args):
     """
     Solve the linear matrix equations on the inner dimensions.
 
@@ -687,7 +694,15 @@ def solve(A,B,**kw_args):
     else:
         gufunc = _impl.solve
 
-    return gufunc(A,B,**kw_args)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(A, B, **kw_args)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def lu(a, permute_l=False, **kw_args):
@@ -936,7 +951,7 @@ def svd(a, full_matrices=1, compute_uv=1 ,**kw_args):
     return gufunc(a, **kw_args)
 
 
-def chosolve(A, B, UPLO='L', **kw_args):
+def chosolve(A, B, UPLO='L', workers=1, **kw_args):
     """
     Solve the linear matrix equations on the inner dimensions, using
     cholesky decomposition.
@@ -999,6 +1014,8 @@ def chosolve(A, B, UPLO='L', **kw_args):
     True
 
     """
+    workers, orig_workers = _check_workers(workers)
+
     if len(B.shape) == (len(A.shape) - 1):
         if 'L' == UPLO:
             gufunc = _impl.chosolve1_lo
@@ -1010,7 +1027,13 @@ def chosolve(A, B, UPLO='L', **kw_args):
         else:
             gufunc = _impl.chosolve_up
 
-    return gufunc(A, B, **kw_args)
+    try:
+        out = gufunc(A, B, **kw_args)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def solve_triangular(A, B, UPLO='L',

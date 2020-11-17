@@ -2126,10 +2126,11 @@ init_syrk_params(SYRK_PARAMS_t *params,
                  fortran_int k,
                  char trans,
                  npy_intp* steps,
-                 size_t sot)
+                 size_t sot,
+                 int no_C)
 {
     size_t a_size = n * k * sot;
-    size_t c_size = n * n * sot;
+    size_t c_size = no_C ? 0 : n * n * sot;
     npy_uint8 *mem_buff = malloc(a_size + c_size);
     if (!mem_buff) {
         memset(params, 0, sizeof(*params));
@@ -2137,7 +2138,7 @@ init_syrk_params(SYRK_PARAMS_t *params,
     }
 
     params->A = mem_buff;
-    params->C = mem_buff + a_size;
+    params->C = no_C ? NULL: mem_buff + a_size;
     if (trans=='N'){
         params->LDA = n;  // must be at least max(1, n)
     } else {
@@ -2199,7 +2200,7 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    if (init_syrk_params(&params, n, k, trans, steps, sot))
+    if (init_syrk_params(&params, n, k, trans, steps, sot, 0))
     {
         LINEARIZE_DATA_t a_in, c_in, r_out;
         init_linearize_data(&a_in, k, n, steps[1], steps[0]);
@@ -2284,7 +2285,7 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    if (init_syrk_params(&params, n, k, trans, steps, sot))
+    if (init_syrk_params(&params, n, k, trans, steps, sot, 1))
     {
         LINEARIZE_DATA_t a_in, r_out;
         init_linearize_data(&a_in, k, n, steps[1], steps[0]);
@@ -2293,7 +2294,9 @@ static void
         BEGIN_OUTER_LOOP_2
             linearize_@TYPE@_matrix(params.A, args[0], &a_in);
             // linearize_@TYPE@_matrix(params.C, args[1], &a_in);
-            zero_@TYPE@_matrix(params.C, &r_out);
+            // zero_@TYPE@_matrix(params.C, &r_out);
+
+            zero_@TYPE@_matrix(args[1], &r_out);
 
             /*
              * To get rank-k update, invoke syrk_.
@@ -2309,11 +2312,14 @@ static void
                            params.A,
                            &params.LDA,
                            (void*)&@zero@, // beta (default=0.0)
-                           params.C,
+                           (void*)args[1],
                            &params.LDC);
 
             /* Copy Fortran matrix returned by SYRK to output argument */
-            delinearize_@TYPE@_matrix(args[1], params.C, &r_out);
+
+            // If we don't call delinearize here using params.C, then we will
+            // have to call out.swapaxes(-2, -1) in the Python caller
+            //delinearize_@TYPE@_matrix(args[1], params.C, &r_out);
         END_OUTER_LOOP
 
         release_syrk_params(&params);

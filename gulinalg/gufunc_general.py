@@ -451,4 +451,7 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', **kwargs):
                 gufunc = _impl.update_rankk_no_c_down
             else:
                 gufunc = _impl.update_rankk_down
-    return gufunc(a, c, **kwargs)
+    out = gufunc(a, c, **kwargs)
+    if c is None:
+        out = out.swapaxes(-1, -2)
+    return out

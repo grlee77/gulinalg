@@ -361,7 +361,7 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
     return gufunc(a, b, c, **kwargs)
 
 
-def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
+def update_rankk(a, c=None, UPLO='U', transpose_type='N', **kwargs):
     """
     Compute symmteric rank-k update, with broadcasting
 
@@ -370,15 +370,12 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
     a : (..., N, K) or (..., K, N) array
         Input array. If `transpose_type` is 'N', `a` should be shape
         (..., N, K) otherwise it should be shape (..., K, N)
-
-    c : (..., N, N) array
-        Input array.
-
+    c : (..., N, N) array, optional
+        Input array. If None, `c` will be a zeros matrix.
     UPLO : {'U', 'L'}, optional
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `a` ('L', default) or
          the upper triangular part ('U').
-
     transpose_type : {'N', 'T', 'C'}, optional
          Transpose type which decides equation to be solved.
          N => No transpose i.e. C = alpha * A * A.T + beta * C
@@ -394,8 +391,7 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
     -----
     Numpy broadcasting rules apply.
 
-    Implemented for single, double. Numpy conversion
-    rules apply.
+    Implemented for single, double. Numpy conversion rules apply.
 
     Rank-k update is computed using BLAS _syrk functions.
 
@@ -406,6 +402,13 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
     ...               [2., 3.]])
     >>> c = np.zeros((3, 3))
     >>> res = update_rankk(a, c)
+    >>> res.shape == (3, 3)
+    True
+    >>> res
+    array([[ 1.,  0.,  2.],
+           [ 0.,  4., -6.],
+           [ 0.,  0., 13.]])
+    >>> res = update_rankk(a)
     >>> res.shape == (3, 3)
     True
     >>> res
@@ -425,7 +428,7 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
                           "valid values are: %s") %
                          (transpose_type, transpose_choices))
 
-    if a.dtype.kind == 'c' or c.dtype.kind == 'c':
+    if a.dtype.kind == 'c' or (c is not None and c.dtype.kind == 'c'):
         raise NotImplementedError(
             "complex-value support not currently implemented")
 
@@ -439,7 +442,13 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
 
     if transpose_type == 'N':
         if UPLO == 'U':
-            gufunc = _impl.update_rankk_up
+            if c is None:
+                gufunc = _impl.update_rankk_no_c_up
+            else:
+                gufunc = _impl.update_rankk_up
         else:
-            gufunc = _impl.update_rankk_down
+            if c is None:
+                gufunc = _impl.update_rankk_no_c_down
+            else:
+                gufunc = _impl.update_rankk_down
     return gufunc(a, c, **kwargs)

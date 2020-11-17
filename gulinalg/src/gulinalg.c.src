@@ -2250,6 +2250,90 @@ static void
 }
 
 
+/*
+ *   uplo:  'U' - C is upper triangular matrix. 'L' - Lower triangular.
+ *   trans: 'N' - No transpose, 'T' - Transpose, 'C' - Conjugate transpose.
+ */
+static void
+@TYPE@_update_rankk_no_c_common(char uplo,
+                                char trans,
+                                char **args,
+                                npy_intp *dimensions,
+                                npy_intp *steps)
+{
+    SYRK_PARAMS_t params;
+    fortran_int k, n;
+
+    INIT_OUTER_LOOP_2
+
+    if (trans == 'N') {
+        n = (fortran_int) dimensions[0];
+        k = (fortran_int) dimensions[1];
+    }
+    else {
+        /* TODO: fix trans != N case. currently this branch is never called
+           because gufunc_general.py does the transpose so that this function
+           is always called with trans == 'N'
+         */
+        k = (fortran_int) dimensions[0];
+        n = (fortran_int) dimensions[1];
+    }
+
+    if (k == 0 || n == 0)
+        return; /* output array will be empty, as one of its inner dimensions will be 0 */
+
+    size_t sot = sizeof(@typ@);
+
+    if (init_syrk_params(&params, n, k, trans, steps, sot))
+    {
+        LINEARIZE_DATA_t a_in, r_out;
+        init_linearize_data(&a_in, k, n, steps[1], steps[0]);
+        init_linearize_data(&r_out, n, n, steps[3], steps[2]);
+
+        BEGIN_OUTER_LOOP_2
+            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+            // linearize_@TYPE@_matrix(params.C, args[1], &a_in);
+            zero_@TYPE@_matrix(params.C, &r_out);
+
+            /*
+             * To get rank-k update, invoke syrk_.
+             * alpha*A*A' + beta*C
+             * or
+             * alpha*A'*A + beta*c
+             */
+             FNAME(@SYRK@)(&uplo,
+                           &trans,
+                           &params.N,
+                           &params.K,
+                           (void*)&@one@, // alpha (default=1.0)
+                           params.A,
+                           &params.LDA,
+                           (void*)&@zero@, // beta (default=0.0)
+                           params.C,
+                           &params.LDC);
+
+            /* Copy Fortran matrix returned by SYRK to output argument */
+            delinearize_@TYPE@_matrix(args[1], params.C, &r_out);
+        END_OUTER_LOOP
+
+        release_syrk_params(&params);
+    }
+}
+
+static void
+@TYPE@_update_rankk_no_c_down(char **args, npy_intp *dimensions,
+                    npy_intp *steps, void *NPY_UNUSED(func))
+{
+    @TYPE@_update_rankk_no_c_common('L', 'N', args, dimensions, steps);
+}
+
+static void
+@TYPE@_update_rankk_no_c_up(char **args, npy_intp *dimensions,
+                    npy_intp *steps, void *NPY_UNUSED(func))
+{
+    @TYPE@_update_rankk_no_c_common('U', 'N', args, dimensions, steps);
+}
+
 /**end repeat**/
 
 
@@ -5767,6 +5851,8 @@ GUFUNC_FUNC_ARRAY_REAL_COMPLEX(update_rank1);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(update_rank1_conjugate);
 GUFUNC_FUNC_ARRAY_REAL(update_rankk_down);
 GUFUNC_FUNC_ARRAY_REAL(update_rankk_up);
+GUFUNC_FUNC_ARRAY_REAL(update_rankk_no_c_down);
+GUFUNC_FUNC_ARRAY_REAL(update_rankk_no_c_up);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(slogdet);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(det);
 GUFUNC_FUNC_ARRAY_REAL_COMPLEX(eighlo);
@@ -6024,6 +6110,24 @@ static GUFUNC_DESCRIPTOR_t gufunc_descriptors [] = {
         2, 2, 1,
         FUNC_ARRAY_NAME(update_rankk_up),
         equal_3_types
+    },
+    {
+        "update_rankk_no_c_down",
+        "(n,k)->(n,n)",
+        "multiply symmetric matrices \n"\
+        "    \"(n,k)->(n,n)\" \n",
+        2, 1, 1,
+        FUNC_ARRAY_NAME(update_rankk_no_c_down),
+        equal_2_types
+    },
+    {
+        "update_rankk_no_c_up",
+        "(n,k)->(n,n)",
+        "multiply symmetric matrices \n"\
+        "    \"(n,k)->(n,n)\" \n",
+        2, 1, 1,
+        FUNC_ARRAY_NAME(update_rankk_no_c_up),
+        equal_2_types
     },
     {
         "slogdet",

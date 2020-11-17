@@ -2128,20 +2128,16 @@ init_syrk_params(SYRK_PARAMS_t *params,
                  npy_intp* steps,
                  size_t sot)
 {
-    npy_uint8 *mem_buff = malloc(n * k * sot);
+    size_t a_size = n * k * sot;
+    size_t c_size = n * n * sot;
+    npy_uint8 *mem_buff = malloc(a_size + c_size);
     if (!mem_buff) {
         memset(params, 0, sizeof(*params));
         return 0;
     }
 
-    npy_uint8 *mem_buff2 = malloc(n * n * sot);
-    if (!mem_buff2) {
-        memset(params, 0, sizeof(*params));
-        return 0;
-    }
-
     params->A = mem_buff;
-    params->C = mem_buff2;
+    params->C = mem_buff + a_size;
     if (trans=='N'){
         params->LDA = n;  // must be at least max(1, n)
     } else {
@@ -2159,8 +2155,6 @@ release_syrk_params(SYRK_PARAMS_t * params)
 {
     free(params->A);
     params->A = NULL;
-    free(params->C);
-    params->C = NULL;
 }
 
 /**begin repeat
@@ -3375,7 +3369,8 @@ init_getrf_func(GETRF_PARAMS_t *params, fortran_int M, fortran_int N,
     const size_t a_size = M * N * sot;
     fortran_int min_m_n = M < N ? M:N;
     const size_t ipiv_size = min_m_n * sizeof(fortran_int);
-    npy_uint8 *mem_buff = malloc(a_size + ipiv_size);
+    npy_uint8 *mem_buff = NULL;
+    mem_buff = malloc(a_size + ipiv_size);
 
     if (mem_buff == NULL) {
         free(mem_buff);
@@ -3390,6 +3385,7 @@ init_getrf_func(GETRF_PARAMS_t *params, fortran_int M, fortran_int N,
     params->LDA = M;
 
     return 1;
+
 }
 
 static inline void

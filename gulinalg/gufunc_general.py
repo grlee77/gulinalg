@@ -28,10 +28,24 @@ functions as gufuncs. The underlying implementation is BLAS based.
 """
 
 from __future__ import division, absolute_import, print_function
-
+import multiprocessing
 
 import numpy as np
+
 from . import _impl
+
+
+def _check_workers(workers):
+    """Check and set the number of gufunc worker threads."""
+    if workers == -1:
+        workers = multiprocessing.cpu_count()
+    elif workers < 1 or workers % 1 != 0:
+        raise ValueError("num_threads must be a non-negative integer or -1")
+
+    orig_workers = _impl.get_gufunc_threads()
+    if workers != orig_workers:
+        _impl.set_gufunc_threads(workers)
+    return workers, orig_workers
 
 
 def inner1d(a, b, **kwargs):
@@ -362,7 +376,7 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
 
 
 def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
-                 **kwargs):
+                 workers=1, **kwargs):
     """
     Compute symmteric rank-k update, with broadcasting
 
@@ -467,11 +481,18 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
                     gufunc = _impl.update_rankk_down_sym
                 else:
                     gufunc = _impl.update_rankk_down
-    out = gufunc(a, c, **kwargs)
-    if c is None and not sym_out:
-        # Have to swap here because update_rankk_no_c* returns with the last
-        # two axes transposed for efficiency (due to BLAS Fortran order).
-        out = out.swapaxes(-1, -2)
-    if not out.flags.c_contiguous:
-        out = np.ascontiguousarray(out)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = gufunc(a, c, **kwargs)
+        if c is None and not sym_out:
+            # Have to swap here because update_rankk_no_c* returns with the last
+            # two axes transposed for efficiency (due to BLAS Fortran order).
+            out = out.swapaxes(-1, -2)
+        if not out.flags.c_contiguous:
+            out = np.ascontiguousarray(out)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
     return out
+

@@ -7,16 +7,13 @@ import sys
 
 
 # note that this package depends on NumPy's distutils. It also
-# piggy-backs on NumPy configuration in order to link agains the
+# piggy-backs on NumPy configuration in order to link against the
 # appropriate BLAS/LAPACK implementation.
+from numpy.distutils.command.build_ext import build_ext
 from numpy.distutils.core import setup, Extension
 from numpy.distutils import system_info as np_sys_info
 from numpy.distutils import misc_util as np_misc_util
 from setup_helpers import add_flag_checking
-try:
-    from setuptools.command.build_ext import build_ext
-except ImportError:
-    from distutils.command.build_ext import build_ext
 
 import versioneer
 
@@ -58,6 +55,9 @@ for key, val in npymath_info.items():
         extra_opts[key].extend(val)
     else:
         extra_opts[key] = copy.deepcopy(val)
+
+# make sure the compiler can find conditional_omp.h
+extra_opts['include_dirs'] += [os.path.join(C_SRC_PATH)]
 
 extra_compile_args = []
 extra_link_args = []

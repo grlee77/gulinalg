@@ -1,6 +1,8 @@
 """Distutils / setuptools helpers.
 
-The functions in this file were borrowed from DIPY (see LICENSE)
+The functions in this file were borrowed from DIPY (BSD 3-clause license)
+https://github.com/dipy/dipy/blob/master/LICENSE
+
 """
 import os
 from os.path import join as pjoin, dirname, exists
@@ -144,37 +146,3 @@ def add_flag_checking(build_ext_class, flag_defines, top_package_dir=""):
             build_ext_class.build_extensions(self)
 
     return Checker
-
-
-def make_np_ext_builder(build_ext_class):
-    """ Override input `build_ext_class` to add numpy includes to extension
-
-    This is useful to delay call of ``np.get_include`` until the extension is
-    being built.
-
-    Parameters
-    ----------
-    build_ext_class : class
-        Class implementing ``distutils.command.build_ext.build_ext`` interface,
-        with a ``build_extensions`` method.
-
-    Returns
-    -------
-    np_build_ext_class : class
-        A class with similar interface to
-        ``distutils.command.build_ext.build_ext``, that adds libraries in
-        ``np.get_include()`` to include directories of extension.
-    """
-
-    class NpExtBuilder(build_ext_class):
-        def build_extensions(self):
-            """ Hook into extension building to add np include dirs
-            """
-            # Delay numpy import until last moment
-            import numpy as np
-
-            for ext in self.extensions:
-                ext.include_dirs.append(np.get_include())
-            build_ext_class.build_extensions(self)
-
-    return NpExtBuilder

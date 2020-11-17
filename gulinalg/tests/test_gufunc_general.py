@@ -684,11 +684,17 @@ class TestSyrk(TestCase):
                 if a_trans:
                     a = a.T
 
-                # use wrong axis size for c
+                # use wrong axis size for c when transpose_type='N'
                 c = np.zeros((a.shape[-1],)*2, dtype=dtype)
 
                 with assert_raises(ValueError):
-                    gulinalg.update_rankk(a, c)
+                    gulinalg.update_rankk(a, c, transpose_type='N')
+
+                # use wrong axis size for c when transpose_type='T'
+                c = np.zeros((a.shape[0],)*2, dtype=dtype)
+
+                with assert_raises(ValueError):
+                    gulinalg.update_rankk(a, c, transpose_type='T')
 
     def test_syrk_wrong_dtype(self):
         nstack = 3

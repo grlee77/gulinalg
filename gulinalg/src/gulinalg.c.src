@@ -2138,8 +2138,8 @@ init_syrk_params(SYRK_PARAMS_t *params,
                  char trans,
                  npy_intp* steps,
                  size_t sot,
-                 int no_C,
-                 int omp_threads)
+                 int omp_threads,
+                 int no_C)
 {
     size_t a_size = n * k * sot;
     size_t c_size = no_C ? 0 : n * n * sot;
@@ -2373,8 +2373,7 @@ static void
         // printf("dN = %d, nthreads = %d\n", (int)dN, nthreads);
     }
 
-    int avoid_C_allocation = 1;
-    if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, avoid_C_allocation))
+    if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, 1))
     {
         LINEARIZE_DATA_t a_in, r_out;
         init_linearize_data(&a_in, k, n, steps[1], steps[0]);
@@ -2385,20 +2384,15 @@ static void
         for (N_ = 0; N_ < dN; N_++) {
             OMP_SET_ID
             void *A = params.A + params.A_size_bytes * ID;
+            void *C;
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             // params.C will be NULL: called init_syrk_params with no_C=1
             void *pC;
-            if (avoid_C_allocation)
-            {
-                // operate on the output array directly
-                zero_@TYPE@_matrix(args[1] + s1 * N_, &r_out);
-                pC = args[1];
-            } else {
-                linearize_@TYPE@_matrix(params.C, args[1] + s1 * N_, &a_in);
-                zero_@TYPE@_matrix(params.C, &r_out);
-                pC = params.C;
-            }
+
+            // operate on the output array directly
+            C = args[1] + s1 * N_;
+            zero_@TYPE@_matrix(C, &r_out);
 
             /*
              * To get rank-k update, invoke syrk_.
@@ -2411,24 +2405,22 @@ static void
                            &params.N,
                            &params.K,
                            (void*)&@one@, // alpha (default=1.0)
-                           params.A,
+                           A,
                            &params.LDA,
                            (void*)&@zero@, // beta (default=0.0)
-                           pC,  // C
+                           C,
                            &params.LDC);
 
             if (symmetric)
             {
-                make_symmetric_@TYPE@_matrix(uplo, params.N, pC);
+                make_symmetric_@TYPE@_matrix(uplo, params.N, C);
             }
 
-            /* Copy Fortran matrix returned by SYRK to output argument */
-            /* when parms.C is NULL we will have to call
+            /* Note: SYRK output, C, is stored in Fortran order
+             * when symmetric is false, we will have to call
              * out.swapaxes(-2, -1) in the Python caller
              */
-            if (avoid_C_allocation == 0) {
-                delinearize_@TYPE@_matrix(args[1] + s1 * N_, pC, &r_out);
-            }
+
         END_OUTER_LOOP
 
         release_syrk_params(&params);

@@ -4,6 +4,7 @@ matrix, that leads to various combinations of matrices to test.
 """
 
 from __future__ import print_function
+from functools import partial
 from unittest import TestCase, skipIf
 import numpy as np
 from numpy.testing import (run_module_suite, assert_allclose, assert_,
@@ -505,6 +506,7 @@ class TestUpdateRank1Vector(TestCase):
 class TestSyrk(TestCase):
 
     def test_syrk_zeros_c(self):
+        gufunc = partial(gulinalg.update_rankk, sym_out=False)
         for a_trans in [True, False]:
             for dtype in [np.float32, np.float64]:
                 a = np.array([[1., 0.],
@@ -517,26 +519,27 @@ class TestSyrk(TestCase):
                 expected = np.dot(a, a.T) + c
 
                 # test upper triangular case
-                r = gulinalg.update_rankk(a, c, transpose_type='N', UPLO='U')
+                r = gufunc(a, c, transpose_type='N', UPLO='U')
                 assert_allclose(np.triu(expected), r)
                 assert_(r.dtype == a.dtype)
 
                 # test lower triangular case
-                r = gulinalg.update_rankk(a, c, transpose_type='N', UPLO='L')
+                r = gufunc(a, c, transpose_type='N', UPLO='L')
                 assert_allclose(np.tril(expected), r)
                 assert_(r.dtype == a.dtype)
 
                 # test upper triangular case with transpose_type='T'
-                r = gulinalg.update_rankk(a.T, c, transpose_type='T', UPLO='U')
+                r = gufunc(a.T, c, transpose_type='T', UPLO='U')
                 assert_allclose(np.triu(expected), r)
                 assert_(r.dtype == a.dtype)
 
                 # test lower triangular case with transpose_type='T'
-                r = gulinalg.update_rankk(a.T, c, transpose_type='T', UPLO='L')
+                r = gufunc(a.T, c, transpose_type='T', UPLO='L')
                 assert_allclose(np.tril(expected), r)
                 assert_(r.dtype == a.dtype)
 
     def test_syrk_ones_c(self):
+        gufunc = partial(gulinalg.update_rankk, sym_out=False)
         for a_trans in [True, False]:
             for dtype in [np.float32, np.float64]:
                 a = np.array([[1., 0.],
@@ -554,124 +557,161 @@ class TestSyrk(TestCase):
                 expected_upper[~mask_upper] = c[~mask_upper]
 
                 # test upper triangular case
-                r = gulinalg.update_rankk(a, c, transpose_type='N', UPLO='U')
+                r = gufunc(a, c, transpose_type='N', UPLO='U')
                 assert_allclose(expected_upper, r)
                 assert_(r.dtype == a.dtype)
 
                 # test lower triangular case
-                r = gulinalg.update_rankk(a, c, transpose_type='N', UPLO='L')
+                r = gufunc(a, c, transpose_type='N', UPLO='L')
                 assert_allclose(expected_lower, r)
                 assert_(r.dtype == a.dtype)
 
                 # test upper triangular case, with transpose_type='T'
-                r = gulinalg.update_rankk(a.T, c, transpose_type='T', UPLO='U')
+                r = gufunc(a.T, c, transpose_type='T', UPLO='U')
                 assert_allclose(expected_upper, r)
                 assert_(r.dtype == a.dtype)
 
                 # test lower triangular case, with transpose_type='T'
-                r = gulinalg.update_rankk(a.T, c, transpose_type='T', UPLO='L')
+                r = gufunc(a.T, c, transpose_type='T', UPLO='L')
                 assert_allclose(expected_lower, r)
                 assert_(r.dtype == a.dtype)
 
     def test_syrk_broadcasted(self):
         nstack = 1
-        for a_trans in [True, False]:
-            for dtype in [np.float32, np.float64]:
-                a = np.array([[1., 0.],
-                              [0., -2.],
-                              [2., 3.]], dtype=dtype)
-                if a_trans:
-                    a = a.T
-                c = np.zeros((a.shape[0],)*2, dtype=dtype)
-                expected = np.dot(a, a.swapaxes(-1, -2)) + c
+        for sym_out in [False, True]:
+            gufunc = partial(gulinalg.update_rankk, sym_out=sym_out)
+            for a_trans in [True, False]:
+                for dtype in [np.float32, np.float64]:
+                    a = np.array([[1., 0.],
+                                  [0., -2.],
+                                  [2., 3.]], dtype=dtype)
+                    if a_trans:
+                        a = a.T
+                    c = np.zeros((a.shape[0],)*2, dtype=dtype)
+                    expected = np.dot(a, a.swapaxes(-1, -2)) + c
 
-                a = np.stack((a, ) * nstack, axis=0)  # stack
+                    a = np.stack((a, ) * nstack, axis=0)  # stack
 
-                # test upper triangular case
-                r = gulinalg.update_rankk(a, c, transpose_type='N', UPLO='U')
-                for i in range(nstack):
-                    assert_allclose(np.triu(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test upper triangular case
+                    r = gufunc(a, c, transpose_type='N', UPLO='U')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.triu(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test upper triangular case with extra c dimensions
-                c_4d = c[np.newaxis, np.newaxis, ...]
-                r = gulinalg.update_rankk(a, c_4d, transpose_type='N',
-                                          UPLO='U')
-                for i in range(nstack):
-                    assert_allclose(np.triu(expected), r[0][i])
-                assert_(r.dtype == a.dtype)
+                    # test upper triangular case with extra c dimensions
+                    c_4d = c[np.newaxis, np.newaxis, ...]
+                    r = gufunc(a, c_4d, transpose_type='N', UPLO='U')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[0][i])
+                        else:
+                            assert_allclose(np.triu(expected), r[0][i])
+                    assert_(r.dtype == a.dtype)
 
-                # test lower triangular case
-                r = gulinalg.update_rankk(a, c, transpose_type='N', UPLO='L')
-                for i in range(nstack):
-                    assert_allclose(np.tril(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test lower triangular case
+                    r = gufunc(a, c, transpose_type='N', UPLO='L')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.tril(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test upper triangular case with transpose_type='T'
-                r = gulinalg.update_rankk(a.swapaxes(-1, -2), c,
-                                          transpose_type='T', UPLO='U')
-                for i in range(nstack):
-                    assert_allclose(np.triu(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test upper triangular case with transpose_type='T'
+                    r = gufunc(a.swapaxes(-1, -2), c, transpose_type='T',
+                               UPLO='U')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.triu(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test lower triangular case
-                r = gulinalg.update_rankk(a, c, transpose_type='N', UPLO='L')
-                for i in range(nstack):
-                    assert_allclose(np.tril(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test lower triangular case
+                    r = gufunc(a, c, transpose_type='N', UPLO='L')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.tril(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test upper triangular case with transpose_type='T'
-                r = gulinalg.update_rankk(a.swapaxes(-1, -2), c,
-                                          transpose_type='T', UPLO='U')
-                for i in range(nstack):
-                    assert_allclose(np.triu(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test upper triangular case with transpose_type='T'
+                    r = gufunc(a.swapaxes(-1, -2), c, transpose_type='T',
+                               UPLO='U')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.triu(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test lower triangular case with transpose_type='T'
-                r = gulinalg.update_rankk(a.swapaxes(-1, -2), c,
-                                          transpose_type='T', UPLO='L')
-                for i in range(nstack):
-                    assert_allclose(np.tril(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test lower triangular case with transpose_type='T'
+                    r = gufunc(a.swapaxes(-1, -2), c, transpose_type='T',
+                               UPLO='L')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.tril(expected), r[i])
+
+                    assert_(r.dtype == a.dtype)
 
     def test_syrk_no_c_broadcasted(self):
         nstack = 1
-        for a_trans in [True, False]:
-            for dtype in [np.float32, np.float64]:
-                a = np.array([[1., 0.],
-                              [0., -2.],
-                              [2., 3.]], dtype=dtype)
-                if a_trans:
-                    a = a.T
-                c = np.zeros((a.shape[0],)*2, dtype=dtype)
-                expected = np.dot(a, a.swapaxes(-1, -2)) + c
+        for sym_out in [False, True]:
+            gufunc = partial(gulinalg.update_rankk, sym_out=sym_out)
+            for a_trans in [True, False]:
+                for dtype in [np.float32, np.float64]:
+                    a = np.array([[1., 0.],
+                                  [0., -2.],
+                                  [2., 3.]], dtype=dtype)
+                    if a_trans:
+                        a = a.T
+                    c = np.zeros((a.shape[0],)*2, dtype=dtype)
+                    expected = np.dot(a, a.swapaxes(-1, -2)) + c
 
-                a = np.stack((a, ) * nstack, axis=0)  # stack
+                    a = np.stack((a, ) * nstack, axis=0)  # stack
 
-                # test upper triangular case
-                r = gulinalg.update_rankk(a, transpose_type='N', UPLO='U')
-                for i in range(nstack):
-                    assert_allclose(np.triu(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test upper triangular case
+                    r = gufunc(a, transpose_type='N', UPLO='U')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.triu(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test lower triangular case
-                r = gulinalg.update_rankk(a, transpose_type='N', UPLO='L')
-                for i in range(nstack):
-                    assert_allclose(np.tril(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test lower triangular case
+                    r = gufunc(a, transpose_type='N', UPLO='L')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.tril(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test upper triangular case with transpose_type='T'
-                r = gulinalg.update_rankk(a.swapaxes(-1, -2),
-                                          transpose_type='T', UPLO='U')
-                for i in range(nstack):
-                    assert_allclose(np.triu(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test upper triangular case with transpose_type='T'
+                    r = gufunc(a.swapaxes(-1, -2), transpose_type='T',
+                               UPLO='U')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.triu(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
-                # test lower triangular case
-                r = gulinalg.update_rankk(a, transpose_type='N', UPLO='L')
-                for i in range(nstack):
-                    assert_allclose(np.tril(expected), r[i])
-                assert_(r.dtype == a.dtype)
+                    # test lower triangular case
+                    r = gufunc(a, transpose_type='N', UPLO='L')
+                    for i in range(nstack):
+                        if sym_out:
+                            assert_allclose(expected, r[i])
+                        else:
+                            assert_allclose(np.tril(expected), r[i])
+                    assert_(r.dtype == a.dtype)
 
 
     def test_syrk_wrong_shape(self):

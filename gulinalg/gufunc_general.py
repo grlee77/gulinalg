@@ -361,7 +361,8 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
     return gufunc(a, b, c, **kwargs)
 
 
-def update_rankk(a, c=None, UPLO='U', transpose_type='T', **kwargs):
+def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
+                 **kwargs):
     """
     Compute symmteric rank-k update, with broadcasting
 
@@ -373,14 +374,17 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', **kwargs):
     c : (..., N, N) array, optional
         Input array. If None, `c` will be a zeros matrix.
     UPLO : {'U', 'L'}, optional
-         Specifies whether the calculation is done with the lower
-         triangular part of the elements in `a` ('L', default) or
-         the upper triangular part ('U').
+        Specifies whether the calculation is done with the lower
+        triangular part of the elements in `a` ('L', default) or
+        the upper triangular part ('U').
     transpose_type : {'N', 'T', 'C'}, optional
-         Transpose type which decides equation to be solved.
-         N => No transpose i.e. C = alpha * A * A.T + beta * C
-         T => Transpose i.e. C = alpha * A.T * A + beta * C
-         C => Conjugate transpose i.e. C = alpha * A.T * A + beta * C
+        Transpose type which decides equation to be solved.
+        N => No transpose i.e. C = alpha * A * A.T + beta * C
+        T => Transpose i.e. C = alpha * A.T * A + beta * C
+        C => Conjugate transpose i.e. C = alpha * A.T * A + beta * C
+    sym_out: bool, optional
+        If True, create a symmetric output by copying the upper (lower)
+        triangular entries into the lower (upper) triangle.
 
     Returns
     -------
@@ -443,15 +447,31 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', **kwargs):
     if transpose_type == 'N':
         if UPLO == 'U':
             if c is None:
-                gufunc = _impl.update_rankk_no_c_up
+                if sym_out:
+                    gufunc = _impl.update_rankk_no_c_up_sym
+                else:
+                    gufunc = _impl.update_rankk_no_c_up
             else:
-                gufunc = _impl.update_rankk_up
+                if sym_out:
+                    gufunc = _impl.update_rankk_up_sym
+                else:
+                    gufunc = _impl.update_rankk_up
         else:
             if c is None:
-                gufunc = _impl.update_rankk_no_c_down
+                if sym_out:
+                    gufunc = _impl.update_rankk_no_c_down_sym
+                else:
+                    gufunc = _impl.update_rankk_no_c_down
             else:
-                gufunc = _impl.update_rankk_down
+                if sym_out:
+                    gufunc = _impl.update_rankk_down_sym
+                else:
+                    gufunc = _impl.update_rankk_down
     out = gufunc(a, c, **kwargs)
-    if c is None:
+    if c is None and not sym_out:
+        # Have to swap here because update_rankk_no_c* returns with the last
+        # two axes transposed for efficiency (due to BLAS Fortran order).
         out = out.swapaxes(-1, -2)
+    if not out.flags.c_contiguous:
+        out = np.ascontiguousarray(out)
     return out

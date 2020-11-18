@@ -405,20 +405,20 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
     ...               [0., -2.],
     ...               [2., 3.]])
     >>> c = np.zeros((3, 3))
-    >>> res = update_rankk(a, c)
+    >>> res = update_rankk(a, c, transpose_type='N', sym_out=False)
     >>> res.shape == (3, 3)
     True
     >>> res
     array([[ 1.,  0.,  2.],
            [ 0.,  4., -6.],
            [ 0.,  0., 13.]])
-    >>> res = update_rankk(a)
+    >>> res = update_rankk(a, transpose_type='N', sym_out=True)
     >>> res.shape == (3, 3)
     True
     >>> res
     array([[ 1.,  0.,  2.],
            [ 0.,  4., -6.],
-           [ 0.,  0., 13.]])
+           [ 2., -6., 13.]])
     """
     uplo_choices = ['U', 'L']
     transpose_choices = ['N', 'T', 'C']

@@ -4,6 +4,7 @@ matrix, that leads to various combinations of matrices to test.
 """
 
 from __future__ import print_function
+from itertools import product
 from functools import partial
 from unittest import TestCase, skipIf
 import numpy as np
@@ -578,8 +579,9 @@ class TestSyrk(TestCase):
 
     def test_syrk_broadcasted(self):
         nstack = 16
-        for sym_out in [False, True]:
-            gufunc = partial(gulinalg.update_rankk, sym_out=sym_out)
+        for sym_out, workers in product([False, True], [1, -1]):
+            gufunc = partial(gulinalg.update_rankk, sym_out=sym_out,
+                             workers=workers)
             for a_trans in [True, False]:
                 for dtype in [np.float32, np.float64]:
                     a = np.array([[1., 0.],
@@ -662,8 +664,9 @@ class TestSyrk(TestCase):
 
     def test_syrk_no_c_broadcasted(self):
         nstack = 16
-        for sym_out in [False, True]:
-            gufunc = partial(gulinalg.update_rankk, sym_out=sym_out)
+        for sym_out, workers in product([False, True], [1, -1]):
+            gufunc = partial(gulinalg.update_rankk, sym_out=sym_out,
+                             workers=workers)
             for a_trans in [True, False]:
                 for dtype in [np.float32, np.float64]:
                     a = np.array([[1., 0.],
@@ -759,6 +762,13 @@ class TestSyrk(TestCase):
 
         with assert_raises(ValueError):
             gulinalg.update_rankk(a, c, transpose_type='X')
+
+    def test_syrk_invalid_workers(self):
+        nstack = 3
+        a = np.ones((3, 3), dtype=np.float64)
+
+        with assert_raises(ValueError):
+            gulinalg.update_rankk(a, workers=0)
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ Tests different implementations of inverse functions.
 """
 
 from __future__ import print_function
+from itertools import product
 from unittest import TestCase, skipIf
 import numpy as np
 from numpy.testing import run_module_suite, assert_allclose
@@ -160,6 +161,33 @@ class TestInverseTriangular(TestCase):
                          [np.nan,    -0.,  1.]]])
         res = gulinalg.inv_triangular(a)
         assert_allclose(res, ref)
+
+
+class TestInverse(TestCase):
+    """
+    Inverse via gesv
+    """
+
+    def test_inv(self):
+        shape = (8, 8)
+        rstate = np.random.RandomState(1234)
+        dtypes = [np.float32, np.float64, np.complex64, np.complex128]
+        for nbroadcast, workers, dtype in product([1, 16], [1, -1], dtypes):
+            a = rstate.randn(shape[0]).astype(dtype)
+            if a.dtype.kind == 'c':
+                rtype = a.real.dtype
+                a = a + 1j * rstate.randn(shape[0]).astype(rtype)
+            a = np.diag(a)
+            expected = np.diag(1 / np.diag(a))
+            if nbroadcast > 1:
+                a = np.stack((a,) * nbroadcast, axis=0)
+                expected = np.stack((expected,) * nbroadcast, axis=0)
+            a_inv = gulinalg.inv(a, workers=workers)
+            if a.real.dtype == np.float32:
+                rtol = atol = 1e-3
+            else:
+                rtol = atol = 1e-12
+            assert_allclose(a_inv, expected, rtol=rtol, atol=atol)
 
 
 if __name__ == '__main__':

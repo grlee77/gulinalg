@@ -361,7 +361,8 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
     return gufunc(a, b, c, **kwargs)
 
 
-def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
+def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
+                 **kwargs):
     """
     Compute symmteric rank-k update, with broadcasting
 
@@ -370,20 +371,20 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
     a : (..., N, K) or (..., K, N) array
         Input array. If `transpose_type` is 'N', `a` should be shape
         (..., N, K) otherwise it should be shape (..., K, N)
-
-    c : (..., N, N) array
-        Input array.
-
+    c : (..., N, N) array, optional
+        Input array. If None, `c` will be a zeros matrix.
     UPLO : {'U', 'L'}, optional
-         Specifies whether the calculation is done with the lower
-         triangular part of the elements in `a` ('L', default) or
-         the upper triangular part ('U').
-
+        Specifies whether the calculation is done with the lower
+        triangular part of the elements in `a` ('L', default) or
+        the upper triangular part ('U').
     transpose_type : {'N', 'T', 'C'}, optional
-         Transpose type which decides equation to be solved.
-         N => No transpose i.e. C = alpha * A * A.T + beta * C
-         T => Transpose i.e. C = alpha * A.T * A + beta * C
-         C => Conjugate transpose i.e. C = alpha * A.T * A + beta * C
+        Transpose type which decides equation to be solved.
+        N => No transpose i.e. C = alpha * A * A.T + beta * C
+        T => Transpose i.e. C = alpha * A.T * A + beta * C
+        C => Conjugate transpose i.e. C = alpha * A.T * A + beta * C
+    sym_out: bool, optional
+        If True, create a symmetric output by copying the upper (lower)
+        triangular entries into the lower (upper) triangle.
 
     Returns
     -------
@@ -394,8 +395,7 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
     -----
     Numpy broadcasting rules apply.
 
-    Implemented for single, double. Numpy conversion
-    rules apply.
+    Implemented for single, double. Numpy conversion rules apply.
 
     Rank-k update is computed using BLAS _syrk functions.
 
@@ -405,13 +405,20 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
     ...               [0., -2.],
     ...               [2., 3.]])
     >>> c = np.zeros((3, 3))
-    >>> res = update_rankk(a, c)
+    >>> res = update_rankk(a, c, transpose_type='N', sym_out=False)
     >>> res.shape == (3, 3)
     True
     >>> res
     array([[ 1.,  0.,  2.],
            [ 0.,  4., -6.],
            [ 0.,  0., 13.]])
+    >>> res = update_rankk(a, transpose_type='N', sym_out=True)
+    >>> res.shape == (3, 3)
+    True
+    >>> res
+    array([[ 1.,  0.,  2.],
+           [ 0.,  4., -6.],
+           [ 2., -6., 13.]])
     """
     uplo_choices = ['U', 'L']
     transpose_choices = ['N', 'T', 'C']
@@ -425,7 +432,7 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
                           "valid values are: %s") %
                          (transpose_type, transpose_choices))
 
-    if a.dtype.kind == 'c' or c.dtype.kind == 'c':
+    if a.dtype.kind == 'c' or (c is not None and c.dtype.kind == 'c'):
         raise NotImplementedError(
             "complex-value support not currently implemented")
 
@@ -439,7 +446,32 @@ def update_rankk(a, c, UPLO='U', transpose_type='N', **kwargs):
 
     if transpose_type == 'N':
         if UPLO == 'U':
-            gufunc = _impl.update_rankk_up
+            if c is None:
+                if sym_out:
+                    gufunc = _impl.update_rankk_no_c_up_sym
+                else:
+                    gufunc = _impl.update_rankk_no_c_up
+            else:
+                if sym_out:
+                    gufunc = _impl.update_rankk_up_sym
+                else:
+                    gufunc = _impl.update_rankk_up
         else:
-            gufunc = _impl.update_rankk_down
-    return gufunc(a, c, **kwargs)
+            if c is None:
+                if sym_out:
+                    gufunc = _impl.update_rankk_no_c_down_sym
+                else:
+                    gufunc = _impl.update_rankk_no_c_down
+            else:
+                if sym_out:
+                    gufunc = _impl.update_rankk_down_sym
+                else:
+                    gufunc = _impl.update_rankk_down
+    out = gufunc(a, c, **kwargs)
+    if c is None and not sym_out:
+        # Have to swap here because update_rankk_no_c* returns with the last
+        # two axes transposed for efficiency (due to BLAS Fortran order).
+        out = out.swapaxes(-1, -2)
+    if not out.flags.c_contiguous:
+        out = np.ascontiguousarray(out)
+    return out

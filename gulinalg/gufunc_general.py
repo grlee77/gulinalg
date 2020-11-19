@@ -492,6 +492,7 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
                     gufunc = _impl.update_rankk_down_sym
                 else:
                     gufunc = _impl.update_rankk_down
+
     workers, orig_workers = _check_workers(workers)
     try:
         out = gufunc(a, c, **kwargs)

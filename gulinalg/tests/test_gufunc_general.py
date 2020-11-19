@@ -16,6 +16,7 @@ import gulinalg
 M = 75
 N = 50
 K = 100
+n_batch = 8
 
 
 class TestMatvecMultiplyNoCopy(TestCase):
@@ -578,7 +579,6 @@ class TestSyrk(TestCase):
                 assert_(r.dtype == a.dtype)
 
     def test_syrk_broadcasted(self):
-        nstack = 16
         for sym_out, workers in product([False, True], [1, -1]):
             gufunc = partial(gulinalg.update_rankk, sym_out=sym_out,
                              workers=workers)
@@ -592,11 +592,11 @@ class TestSyrk(TestCase):
                     c = np.zeros((a.shape[0],)*2, dtype=dtype)
                     expected = np.dot(a, a.swapaxes(-1, -2)) + c
 
-                    a = np.stack((a, ) * nstack, axis=0)  # stack
+                    a = np.stack((a, ) * n_batch, axis=0)  # stack
 
                     # test upper triangular case
                     r = gufunc(a, c, transpose_type='N', UPLO='U')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -606,7 +606,7 @@ class TestSyrk(TestCase):
                     # test upper triangular case with extra c dimensions
                     c_4d = c[np.newaxis, np.newaxis, ...]
                     r = gufunc(a, c_4d, transpose_type='N', UPLO='U')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[0][i])
                         else:
@@ -615,7 +615,7 @@ class TestSyrk(TestCase):
 
                     # test lower triangular case
                     r = gufunc(a, c, transpose_type='N', UPLO='L')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -625,7 +625,7 @@ class TestSyrk(TestCase):
                     # test upper triangular case with transpose_type='T'
                     r = gufunc(a.swapaxes(-1, -2), c, transpose_type='T',
                                UPLO='U')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -634,7 +634,7 @@ class TestSyrk(TestCase):
 
                     # test lower triangular case
                     r = gufunc(a, c, transpose_type='N', UPLO='L')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -644,7 +644,7 @@ class TestSyrk(TestCase):
                     # test upper triangular case with transpose_type='T'
                     r = gufunc(a.swapaxes(-1, -2), c, transpose_type='T',
                                UPLO='U')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -654,7 +654,7 @@ class TestSyrk(TestCase):
                     # test lower triangular case with transpose_type='T'
                     r = gufunc(a.swapaxes(-1, -2), c, transpose_type='T',
                                UPLO='L')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -663,7 +663,6 @@ class TestSyrk(TestCase):
                     assert_(r.dtype == a.dtype)
 
     def test_syrk_no_c_broadcasted(self):
-        nstack = 16
         for sym_out, workers in product([False, True], [1, -1]):
             gufunc = partial(gulinalg.update_rankk, sym_out=sym_out,
                              workers=workers)
@@ -677,11 +676,11 @@ class TestSyrk(TestCase):
                     c = np.zeros((a.shape[0],)*2, dtype=dtype)
                     expected = np.dot(a, a.swapaxes(-1, -2)) + c
 
-                    a = np.stack((a, ) * nstack, axis=0)  # stack
+                    a = np.stack((a, ) * n_batch, axis=0)  # stack
 
                     # test upper triangular case
                     r = gufunc(a, transpose_type='N', UPLO='U')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -690,7 +689,7 @@ class TestSyrk(TestCase):
 
                     # test lower triangular case
                     r = gufunc(a, transpose_type='N', UPLO='L')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -700,7 +699,7 @@ class TestSyrk(TestCase):
                     # test upper triangular case with transpose_type='T'
                     r = gufunc(a.swapaxes(-1, -2), transpose_type='T',
                                UPLO='U')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -709,7 +708,7 @@ class TestSyrk(TestCase):
 
                     # test lower triangular case
                     r = gufunc(a, transpose_type='N', UPLO='L')
-                    for i in range(nstack):
+                    for i in range(n_batch):
                         if sym_out:
                             assert_allclose(expected, r[i])
                         else:
@@ -717,7 +716,6 @@ class TestSyrk(TestCase):
                     assert_(r.dtype == a.dtype)
 
     def test_syrk_wrong_shape(self):
-        nstack = 3
         for a_trans in [True, False]:
             for dtype in [np.float32, np.float64]:
                 a = np.array([[1., 0.],
@@ -739,7 +737,6 @@ class TestSyrk(TestCase):
                     gulinalg.update_rankk(a, c, transpose_type='T')
 
     def test_syrk_wrong_dtype(self):
-        nstack = 3
         for dtype in [np.complex64, np.complex128]:
             a = np.ones((3, 3), dtype=dtype)
             c = np.zeros_like(a)
@@ -748,7 +745,6 @@ class TestSyrk(TestCase):
                 gulinalg.update_rankk(a, c)
 
     def test_syrk_invalid_uplo(self):
-        nstack = 3
         a = np.ones((3, 3), dtype=np.float64)
         c = np.zeros_like(a)
 
@@ -756,7 +752,6 @@ class TestSyrk(TestCase):
             gulinalg.update_rankk(a, c, UPLO='X')
 
     def test_syrk_invalid_transpose_type(self):
-        nstack = 3
         a = np.ones((3, 3), dtype=np.float64)
         c = np.zeros_like(a)
 
@@ -764,7 +759,6 @@ class TestSyrk(TestCase):
             gulinalg.update_rankk(a, c, transpose_type='X')
 
     def test_syrk_invalid_workers(self):
-        nstack = 3
         a = np.ones((3, 3), dtype=np.float64)
 
         with assert_raises(ValueError):

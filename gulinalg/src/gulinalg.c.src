@@ -2182,6 +2182,7 @@ typedef struct syrk_params_struct
     void *C;
     fortran_int A_size_bytes;
     fortran_int C_size_bytes;
+    char TRANSA;
     fortran_int N;
     fortran_int K;
     fortran_int LDA;
@@ -2192,30 +2193,63 @@ static inline int
 init_syrk_params(SYRK_PARAMS_t *params,
                  fortran_int n,
                  fortran_int k,
-                 char trans,
                  npy_intp* steps,
                  size_t sot,
                  int omp_threads,
                  int no_C)
 {
-    size_t a_size = n * k * sot;
-    size_t c_size = no_C ? 0 : n * n * sot;
+
+    npy_int a_col_stride = steps[0];
+    npy_int a_row_stride = steps[1];
+
+    int a_transposed = 0;
+
+    size_t a_size = NULL;
+
+    /* maybe row major */
+    if (a_row_stride == sot && /* dense rows */
+        a_col_stride % sot == 0 && /* elements aligned */
+        a_col_stride / sot >= k) { /* lead will be >= max(1, rows) */
+        /* Can use directly, transposed "FORTRAN" array -C array- */
+        a_transposed = 1; /* Transposed */
+        params->LDA = k;
+    } else if (a_col_stride == sot && /* dense columns */
+        a_row_stride % sot == 0 && /* elements aligned */
+        a_row_stride / sot >= n) { /* lead will be >= max(1, columns) */
+        /* Can use directly, non transposed "FORTRAN" array */
+        a_transposed = 0; /* Transposed */
+        params->LDA = n;
+    } else {
+        params->LDA = n;
+        a_size = n * k * sot;
+    }
+
+    size_t c_size = no_C ? NULL : n * n * sot;
     params->A_size_bytes = a_size;
     params->C_size_bytes = c_size;
 
-    npy_uint8 *mem_buff = malloc((a_size + c_size) * omp_threads);
-    if (!mem_buff) {
-        memset(params, 0, sizeof(*params));
-        return 0;
+    npy_uint8 *mem_buff = NULL;
+    npy_uint8 *mem_buff2 = NULL;
+    if (a_size)
+    {
+        mem_buff = malloc((a_size + c_size) * omp_threads);
+        if (!mem_buff) {
+            memset(params, 0, sizeof(*params));
+            return 0;
+        }
+    }
+    if (c_size)
+    {
+        mem_buff2 = malloc((a_size + c_size) * omp_threads);
+        if (!mem_buff2) {
+            memset(params, 0, sizeof(*params));
+            return 0;
+        }
     }
 
     params->A = mem_buff;
-    params->C = no_C ? NULL: mem_buff + a_size * omp_threads;
-    if (trans=='N'){
-        params->LDA = n;  // must be at least max(1, n)
-    } else {
-        params->LDA = k;  // must be at least max(1, k)
-    }
+    params->TRANSA="NT"[a_transposed];
+    params->C = mem_buff2;
     params->LDC = n;  // must be at least max(1, n)
     params->N = n;
     params->K = k;
@@ -2228,6 +2262,8 @@ release_syrk_params(SYRK_PARAMS_t * params)
 {
     free(params->A);
     params->A = NULL;
+    free(params->C);
+    params->C = NULL;
 }
 
 /**begin repeat
@@ -2240,11 +2276,9 @@ release_syrk_params(SYRK_PARAMS_t * params)
 
 /*
  *   uplo:  'U' - C is upper triangular matrix. 'L' - Lower triangular.
- *   trans: 'N' - No transpose, 'T' - Transpose, 'C' - Conjugate transpose.
  */
 static void
 @TYPE@_update_rankk_common(char uplo,
-                           char trans,
                            char **args,
                            npy_intp *dimensions,
                            npy_intp *steps,
@@ -2255,18 +2289,11 @@ static void
 
     INIT_OUTER_LOOP_3
 
-    if (trans == 'N') {
-        n = (fortran_int) dimensions[0];
-        k = (fortran_int) dimensions[1];
-    }
-    else {
-        /* TODO: fix trans != N case. currently this branch is never called
-           because gufunc_general.py does the transpose so that this function
-           is always called with trans == 'N'
-         */
-        k = (fortran_int) dimensions[0];
-        n = (fortran_int) dimensions[1];
-    }
+    npy_intp step_n, step_k;
+    n = (fortran_int) dimensions[0];
+    k = (fortran_int) dimensions[1];
+    step_n = steps[0];
+    step_k = steps[1];
 
     if (k == 0 || n == 0)
         return; /* output array will be empty, as one of its inner dimensions will be 0 */
@@ -2289,10 +2316,16 @@ static void
         omp_set_num_threads(nthreads);
     }
 
-    if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, 0))
+    if (init_syrk_params(&params, n, k, steps, sot, nthreads, 0))
     {
         LINEARIZE_DATA_t a_in, c_in, r_out;
-        init_linearize_data(&a_in, k, n, steps[1], steps[0]);
+        if (params.A) {
+            /*
+             * Input matrix isn't dense. Since BLAS routine expects that in
+             * contiguous memory locations, flatten input into params.A.
+             */
+            init_linearize_data(&a_in, k, n, step_k, step_n);
+        }
         init_linearize_data(&c_in, n, n, steps[3], steps[2]);
         init_linearize_data(&r_out, n, n, steps[5], steps[4]);
 
@@ -2303,7 +2336,6 @@ static void
         #pragma omp parallel for num_threads(nthreads)
         for (N_ = 0; N_ < dN; N_++) {
 
-            // printf("omp_get_num_threads = %d\n", omp_get_num_threads());
             /* With OpenMP threads, params.A is size n * k * threads
              *                      params.C is size n * n * threads
              * To avoid thread conflicts, A, C point to a specific offset for
@@ -2312,10 +2344,17 @@ static void
 
             OMP_SET_ID
 
-            void *A = params.A + params.A_size_bytes * ID;
+            void *A;
             void *C = params.C + params.C_size_bytes * ID;
 
-            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            if (params.A)
+            {
+                A = params.A + params.A_size_bytes * ID;
+                linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            } else
+            {
+                A = args[0] + s0 * N_;
+            }
             linearize_@TYPE@_matrix(C, args[1] + s1 * N_, &c_in);
 
             /*
@@ -2325,7 +2364,7 @@ static void
              * alpha*A'*A + beta*c
              */
              FNAME(@SYRK@)(&uplo,
-                           &trans,
+                           &params.TRANSA,
                            &params.N,
                            &params.K,
                            (void*)&@one@, // alpha (default=1.0)
@@ -2353,38 +2392,36 @@ static void
 @TYPE@_update_rankk_down(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('L', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_common('L', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_up(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('U', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_common('U', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_down_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('L', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_common('L', args, dimensions, steps, 1);
 }
 
 static void
 @TYPE@_update_rankk_up_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('U', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_common('U', args, dimensions, steps, 1);
 }
 
 
 /*
  *   uplo:  'U' - C is upper triangular matrix. 'L' - Lower triangular.
- *   trans: 'N' - No transpose, 'T' - Transpose, 'C' - Conjugate transpose.
  */
 static void
 @TYPE@_update_rankk_no_c_common(char uplo,
-                                char trans,
                                 char **args,
                                 npy_intp *dimensions,
                                 npy_intp *steps,
@@ -2395,18 +2432,11 @@ static void
 
     INIT_OUTER_LOOP_2
 
-    if (trans == 'N') {
-        n = (fortran_int) dimensions[0];
-        k = (fortran_int) dimensions[1];
-    }
-    else {
-        /* TODO: fix trans != N case. currently this branch is never called
-           because gufunc_general.py does the transpose so that this function
-           is always called with trans == 'N'
-         */
-        k = (fortran_int) dimensions[0];
-        n = (fortran_int) dimensions[1];
-    }
+    npy_intp step_n, step_k;
+    n = (fortran_int) dimensions[0];
+    k = (fortran_int) dimensions[1];
+    step_n = steps[0];
+    step_k = steps[1];
 
     if (k == 0 || n == 0)
         return; /* output array will be empty, as one of its inner dimensions will be 0 */
@@ -2429,10 +2459,16 @@ static void
         omp_set_num_threads(nthreads);
     }
 
-    if (init_syrk_params(&params, n, k, trans, steps, sot, nthreads, 1))
+    if (init_syrk_params(&params, n, k, steps, sot, nthreads, 1))
     {
         LINEARIZE_DATA_t a_in, r_out;
-        init_linearize_data(&a_in, k, n, steps[1], steps[0]);
+        if (params.A) {
+            /*
+             * Input matrix isn't dense. Since BLAS routine expects that in
+             * contiguous memory locations, flatten input into params.A.
+             */
+            init_linearize_data(&a_in, k, n, step_k, step_n);
+        }
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
 
         //BEGIN_OUTER_LOOP_2
@@ -2441,10 +2477,18 @@ static void
 
             OMP_SET_ID
 
-            void *A = params.A + params.A_size_bytes * ID;
+            void *A;
             void *C;
 
-            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            if (params.A)
+            {
+                A = params.A + params.A_size_bytes * ID;
+                linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            } else
+            {
+                A = args[0] + s0 * N_;
+            }
+
             // params.C will be NULL: called init_syrk_params with no_C=1
             void *pC;
 
@@ -2459,7 +2503,7 @@ static void
              * alpha*A'*A + beta*c
              */
              FNAME(@SYRK@)(&uplo,
-                           &trans,
+                           &params.TRANSA,
                            &params.N,
                            &params.K,
                            (void*)&@one@, // alpha (default=1.0)
@@ -2491,29 +2535,30 @@ static void
 @TYPE@_update_rankk_no_c_down(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('L', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_no_c_common('L', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_no_c_up(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('U', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_no_c_common('U', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_no_c_down_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('L', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_no_c_common('L', args, dimensions, steps, 1);
 }
 
 static void
 @TYPE@_update_rankk_no_c_up_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('U', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_no_c_common('U', args, dimensions, steps, 1);
 }
+
 
 /**end repeat**/
 

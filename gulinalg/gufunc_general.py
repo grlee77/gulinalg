@@ -185,7 +185,7 @@ def innerwt(a, b, c, **kwargs):
     return _impl.innerwt(a, b, c, **kwargs)
 
 
-def matrix_multiply(a,b,**kwargs):
+def matrix_multiply(a, b, workers=1, **kwargs):
     """
     Compute matrix multiplication, with broadcasting
 
@@ -195,6 +195,10 @@ def matrix_multiply(a,b,**kwargs):
         Input array.
     b : (..., N, P) array
         Input array.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -225,7 +229,14 @@ def matrix_multiply(a,b,**kwargs):
             [1030., 1088., 1146.]]])
 
     """
-    return _impl.matrix_multiply(a,b,**kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out =  _impl.matrix_multiply(a, b, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def matvec_multiply(a, b, **kwargs):

@@ -461,11 +461,7 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
         raise NotImplementedError(
             "complex-value support not currently implemented")
 
-    if transpose_type == 'T':
-        # transpose the input and then call with transpose_type='N'
-        a = a.swapaxes(-1, -2)  # tranpose the last two dimensions
-        transpose_type = 'N'
-    elif transpose_type == 'C':
+    if transpose_type == 'C':
         # gufunc = _impl.update_rank1_conjugate
         raise NotImplementedError("transpose_type='C' unimplemented")
 
@@ -492,6 +488,29 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
                     gufunc = _impl.update_rankk_down_sym
                 else:
                     gufunc = _impl.update_rankk_down
+    elif transpose_type == 'T':
+        if UPLO == 'U':
+            if c is None:
+                if sym_out:
+                    gufunc = _impl.update_rankk_no_c_up_sym_T
+                else:
+                    gufunc = _impl.update_rankk_no_c_up_T
+            else:
+                if sym_out:
+                    gufunc = _impl.update_rankk_up_sym_T
+                else:
+                    gufunc = _impl.update_rankk_up_T
+        else:
+            if c is None:
+                if sym_out:
+                    gufunc = _impl.update_rankk_no_c_down_sym_T
+                else:
+                    gufunc = _impl.update_rankk_no_c_down_T
+            else:
+                if sym_out:
+                    gufunc = _impl.update_rankk_down_sym_T
+                else:
+                    gufunc = _impl.update_rankk_down_T
     workers, orig_workers = _check_workers(workers)
     try:
         out = gufunc(a, c, **kwargs)

@@ -1846,9 +1846,9 @@ static void
             OMP_SET_ID
 
             if (k != 0) {
-                void *pA = params.A + params.A_size_bytes * ID;
-                void *pB = params.B + params.B_size_bytes * ID;
-                void *pC = params.C + params.C_size_bytes * ID;
+                void *pA = (void*)((char*)params.A + params.A_size_bytes * ID);
+                void *pB = (void*)((char*)params.B + params.B_size_bytes * ID);
+                void *pC = (void*)((char*)params.C + params.C_size_bytes * ID);
 
                 /* just call the appropriate multiply and update pointers */
                 @typ@ *A = linearize_@TYPE@_matrix(pA, args[swapped] + sA * N_, &a_in);
@@ -2345,11 +2345,11 @@ static void
             OMP_SET_ID
 
             void *A;
-            void *C = params.C + params.C_size_bytes * ID;
+            void *C = (void*)((char*)params.C + params.C_size_bytes * ID);
 
             if (params.A)
             {
-                A = params.A + params.A_size_bytes * ID;
+                A = (void*)((char*)params.A + params.A_size_bytes * ID);
                 linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             } else
             {
@@ -2482,7 +2482,7 @@ static void
 
             if (params.A)
             {
-                A = params.A + params.A_size_bytes * ID;
+                A = (void*)((char*)params.A + params.A_size_bytes * ID);
                 linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             } else
             {
@@ -3279,8 +3279,8 @@ static void
 
             OMP_SET_ID
 
-            void *A = params.A + params.A_size_bytes * ID;
-            void *B = params.B + params.B_size_bytes * ID;
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
             fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
@@ -3342,8 +3342,8 @@ static void
 
             OMP_SET_ID
 
-            void *A = params.A + params.A_size_bytes * ID;
-            void *B = params.B + params.B_size_bytes * ID;
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
             fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
@@ -3403,8 +3403,8 @@ static void
 
             OMP_SET_ID
 
-            void *A = params.A + params.A_size_bytes * ID;
-            void *B = params.B + params.B_size_bytes * ID;
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
             fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
@@ -5659,8 +5659,8 @@ static void
 
             OMP_SET_ID
 
-            void *A = params.A + params.A_size_bytes * ID;
-            void *B = params.B + params.B_size_bytes * ID;
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
 
             linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);

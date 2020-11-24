@@ -16,6 +16,8 @@
 #include <assert.h>
 #include <math.h>
 
+#include "conditional_omp.h"
+
 #ifdef _MSC_VER
 /* in Microsoft's C compiler "inline" is not valid, use "__inline" instead*/
 #  define inline __inline
@@ -83,6 +85,7 @@ typedef int sgeev_type(char *jobvl, char *jobvr, int *n,
                        float vl[], int *ldvl, float vr[], int *ldvr,
                        float work[], int lwork[],
                        int *info);
+
 typedef int dgeev_type(char *jobvl, char *jobvr, int *n,
                        double a[], int *lda, double wr[], double wi[],
                        double vl[], int *ldvl, double vr[], int *ldvr,
@@ -287,10 +290,13 @@ typedef int zpotri_type(char *uplo, int *n,
 
 typedef int slaswp_type(int *n, float *a, int *lda,
                        int *k1, int *k2, int *ipiv, int *incx);
+
 typedef int dlaswp_type(int *n, double *a, int *lda,
                        int *k1, int *k2, int *ipiv, int *incx);
+
 typedef int claswp_type(int *n, f2c_complex *a, int *lda,
                        int *k1, int *k2, int *ipiv, int *incx);
+
 typedef int zlaswp_type(int *n, f2c_doublecomplex *a, int *lda,
                        int *k1, int *k2, int *ipiv, int *incx);
 
@@ -1059,6 +1065,13 @@ dump_@TYPE@_matrix(const char* name,
 
 #define END_OUTER_LOOP  }
 
+#define OMP_SET_ID \
+    int ID;\
+        if (have_openmp)\
+            ID = omp_get_thread_num();\
+        else\
+            ID = 0;
+
 static inline void
 update_pointers(npy_uint8** bases, ptrdiff_t* offsets, size_t count)
 {
@@ -1530,6 +1543,9 @@ typedef struct gemm_params_struct
     void *A;
     void *B;
     void *C;
+    fortran_int A_size_bytes;
+    fortran_int B_size_bytes;
+    fortran_int C_size_bytes;
     fortran_int LDA;
     fortran_int LDB;
     fortran_int LDC;
@@ -1550,10 +1566,13 @@ dump_gemm_params(const char* name, const GEMM_PARAMS_t* params)
               "%14s: %18p\n" "%14s: %18p\n" "%14s: %18p\n"
               "%14s: %18d\n" "%14s: %18d\n" "%14s: %18d\n"
               "%14s: %18d\n" "%14s: %18d\n" "%14s: %18d\n"
+              "%14s: %18d\n" "%14s: %18d\n" "%14s: %18d\n"
               "%14s: %15c'%c'\n" "%14s: %15c'%c'\n"
               "%14s: %18s\n",
               name,
               "A", params->A, "B", params->B, "C", params->C,
+              "Asize", params->A_size_bytes, "Bsize", params->B_size_bytes,
+              "Csize", params->C_size_bytes,
               "LDA", params->LDA, "LDB", params->LDB, "LDC", params->LDC,
               "M", params->M, "K", params->K, "N", params->N,
               "TRANSA", ' ', params->TRANSA, "TRANSB", ' ', params->TRANSB,
@@ -1563,7 +1582,8 @@ dump_gemm_params(const char* name, const GEMM_PARAMS_t* params)
 
 typedef struct _matrix_desc {
     fortran_int lead;
-    size_t size;
+    size_t size1;  // size of a single matrix
+    size_t size;   /// size of omp_threads matrices
     void *buff;
     int transposed;
 } matrix_desc;
@@ -1574,7 +1594,8 @@ matrix_desc_init(matrix_desc *mtxd,
                  npy_intp* steps,
                  size_t sot,
                  fortran_int rows,
-                 fortran_int columns)
+                 fortran_int columns,
+                 fortran_int omp_threads)
 /* initialized a matrix desc based on the information in steps
    it will fill the matrix desc with the values needed.
 
@@ -1586,6 +1607,7 @@ matrix_desc_init(matrix_desc *mtxd,
              be generated for single and double)
    rows    - number of rows in the matrix (or length of column) rows >= 1
    columns - number of columns in the matrix (or length of row) columns >= 1
+   omp_threads - number of OpenMP threads to use
 
 */
 {
@@ -1607,6 +1629,7 @@ matrix_desc_init(matrix_desc *mtxd,
             row_stride / sot >= rows) { /* lead will be >= max(1, columns) */
             /* Can use directly, non transposed "FORTRAN" array */
             mtxd->lead = row_stride / sot;
+            mtxd->size1 = 0;
             mtxd->size = 0;
             mtxd->buff = NULL;
             mtxd->transposed = 0; /* normal */
@@ -1619,6 +1642,7 @@ matrix_desc_init(matrix_desc *mtxd,
             col_stride / sot >= columns) { /* lead will be >= max(1, rows) */
             /* Can use directly, transposed "FORTRAN" array -C array- */
             mtxd->lead = col_stride / sot;
+            mtxd->size1 = 0;
             mtxd->size = 0;
             mtxd->buff = NULL;
             mtxd->transposed = 1; /* Transposed */
@@ -1629,10 +1653,10 @@ matrix_desc_init(matrix_desc *mtxd,
     /* If we reach this point, we will need a copy. Setup as a column major array
        by default */
     mtxd->lead = rows;
-    mtxd->size = rows*columns*sot; /* this being non zero means a buff is needed */
+    mtxd->size1 = rows*columns*sot; /* this being non zero means a buff is needed */
+    mtxd->size = mtxd->size1 * omp_threads;
     mtxd->buff = NULL;
     mtxd->transposed = 0; /* normal */
-
 }
 
 static inline npy_uint8 *
@@ -1652,24 +1676,25 @@ init_gemm_params(GEMM_PARAMS_t *params,
                  fortran_int k,
                  fortran_int n,
                  npy_intp* steps,
-                 size_t sot)
+                 size_t sot,
+                 int omp_threads)
 {
     int swap_args = 0;
     npy_uint8 *mem_buff = NULL;
     matrix_desc a, b, c;
-    matrix_desc_init(&c, steps + 4, sot, m, n);
+    matrix_desc_init(&c, steps + 4, sot, m, n, omp_threads);
     if (!c.transposed) {
         /* either the result is in FORTRAN order or a copy is needed for
            the output */
-        matrix_desc_init(&a, steps + 0, sot, m, k);
-        matrix_desc_init(&b, steps + 2, sot, k, n);
+        matrix_desc_init(&a, steps + 0, sot, m, k, omp_threads);
+        matrix_desc_init(&b, steps + 2, sot, k, n, omp_threads);
     } else {
         /* note that this implies that the result buffer is "dense" but that
            it expects the result in C order. We will be able to deal with that
            by using the identity B.T x A.T == AB.T*/
         c.transposed = 0;
-        matrix_desc_init(&a, steps + 2, sot, k, n);
-        matrix_desc_init(&b, steps + 0, sot, m, k);
+        matrix_desc_init(&a, steps + 2, sot, k, n, omp_threads);
+        matrix_desc_init(&b, steps + 0, sot, m, k, omp_threads);
         /* transpose the matrix_descs */
         a.transposed = 1 - a.transposed;
         b.transposed = 1 - b.transposed;
@@ -1700,6 +1725,9 @@ init_gemm_params(GEMM_PARAMS_t *params,
     params->A = a.buff;
     params->B = b.buff;
     params->C = c.buff;
+    params->A_size_bytes = a.size1;
+    params->B_size_bytes = b.size1;
+    params->C_size_bytes = c.size1;
     params->LDA = a.lead;
     params->LDB = b.lead;
     params->LDC = c.lead;
@@ -1752,16 +1780,43 @@ static void
 
     INIT_OUTER_LOOP_3
 
+    int max_threads=1, nthreads=1, orig_threads=1;
+    int use_openmp = have_openmp && dN > 1;
+    if (use_openmp)
+    {
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
+        }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+    }
+
     m = (fortran_int) dimensions[0];
     k = (fortran_int) dimensions[1];
     n = (fortran_int) dimensions[2];
     if (m == 0 || n == 0)
         return; /* output array will be empty, as one of its inner dimensions will be 0 */
 
-    if (init_gemm_params(&params, m, k, n, steps, sizeof(@typ@)))
+    if (init_gemm_params(&params, m, k, n, steps, sizeof(@typ@), nthreads))
     {
         int swapped = params.swap_args;
         LINEARIZE_DATA_t a_in, b_in, c_out;
+
+        npy_intp sA, sB, sC;
+
+        if (!swapped) {
+            sA = s0;
+            sB = s1;
+        } else {
+            sA = s1;
+            sB = s0;
+        }
+        sC = s2;
 
         if (k != 0) {
             if (!swapped) {
@@ -1784,12 +1839,21 @@ static void
             init_linearize_data(&c_out, n, m, steps[5], steps[4]);
         }
 
-        BEGIN_OUTER_LOOP_3
+        //BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+
+            OMP_SET_ID
+
             if (k != 0) {
+                void *pA = (void*)((char*)params.A + params.A_size_bytes * ID);
+                void *pB = (void*)((char*)params.B + params.B_size_bytes * ID);
+                void *pC = (void*)((char*)params.C + params.C_size_bytes * ID);
+
                 /* just call the appropriate multiply and update pointers */
-                @typ@ *A = linearize_@TYPE@_matrix(params.A, args[swapped], &a_in);
-                @typ@ *B = linearize_@TYPE@_matrix(params.B, args[1-swapped], &b_in);
-                @typ@ *C = params.C ? (@typ@*)params.C : (@typ@ *) args[2];
+                @typ@ *A = linearize_@TYPE@_matrix(pA, args[swapped] + sA * N_, &a_in);
+                @typ@ *B = linearize_@TYPE@_matrix(pB, args[1-swapped] + sB * N_, &b_in);
+                @typ@ *C = params.C ? (@typ@*)pC : (@typ@ *) (args[2] + sC * N_);
 
                 /* linearize source operands if needed */
                 /* (M, K) x (K, N) -> (M, N) */
@@ -1800,14 +1864,16 @@ static void
                               (void*)B, &params.LDB,
                               (void*)&@zero@, // beta
                               (void*)C, &params.LDC);
-                delinearize_@TYPE@_matrix(args[2], params.C, &c_out);
+                delinearize_@TYPE@_matrix(args[2] + sC * N_, pC, &c_out);
             } else {
                 /* if K is 0, then fill the result with zeros */
-                zero_@TYPE@_matrix(args[2], &c_out);
+                zero_@TYPE@_matrix(args[2] + sC * N_, &c_out);
             }
         END_OUTER_LOOP
 
         release_gemm_params(&params);
+        if (use_openmp)
+            omp_set_num_threads(orig_threads);
     }
 }
 
@@ -1843,7 +1909,7 @@ init_gemv_params(GEMV_PARAMS_t *params,
      * array, allocate one.
      */
     matrix_desc a;
-    matrix_desc_init(&a, steps + 0, sot, m, n);
+    matrix_desc_init(&a, steps + 0, sot, m, n, 1);
     if (a.size)
     {
         npy_uint8 *current;
@@ -2114,6 +2180,9 @@ typedef struct syrk_params_struct
 {
     void *A;
     void *C;
+    fortran_int A_size_bytes;
+    fortran_int C_size_bytes;
+    char TRANSA;
     fortran_int N;
     fortran_int K;
     fortran_int LDA;
@@ -2124,26 +2193,63 @@ static inline int
 init_syrk_params(SYRK_PARAMS_t *params,
                  fortran_int n,
                  fortran_int k,
-                 char trans,
                  npy_intp* steps,
                  size_t sot,
+                 int omp_threads,
                  int no_C)
 {
-    size_t a_size = n * k * sot;
-    size_t c_size = no_C ? 0 : n * n * sot;
-    npy_uint8 *mem_buff = malloc(a_size + c_size);
-    if (!mem_buff) {
-        memset(params, 0, sizeof(*params));
-        return 0;
+
+    npy_int a_col_stride = steps[0];
+    npy_int a_row_stride = steps[1];
+
+    int a_transposed = 0;
+
+    size_t a_size = NULL;
+
+    /* maybe row major */
+    if (a_row_stride == sot && /* dense rows */
+        a_col_stride % sot == 0 && /* elements aligned */
+        a_col_stride / sot >= k) { /* lead will be >= max(1, rows) */
+        /* Can use directly, transposed "FORTRAN" array -C array- */
+        a_transposed = 1; /* Transposed */
+        params->LDA = k;
+    } else if (a_col_stride == sot && /* dense columns */
+        a_row_stride % sot == 0 && /* elements aligned */
+        a_row_stride / sot >= n) { /* lead will be >= max(1, columns) */
+        /* Can use directly, non transposed "FORTRAN" array */
+        a_transposed = 0; /* Transposed */
+        params->LDA = n;
+    } else {
+        params->LDA = n;
+        a_size = n * k * sot;
+    }
+
+    size_t c_size = no_C ? NULL : n * n * sot;
+    params->A_size_bytes = a_size;
+    params->C_size_bytes = c_size;
+
+    npy_uint8 *mem_buff = NULL;
+    npy_uint8 *mem_buff2 = NULL;
+    if (a_size)
+    {
+        mem_buff = malloc((a_size + c_size) * omp_threads);
+        if (!mem_buff) {
+            memset(params, 0, sizeof(*params));
+            return 0;
+        }
+    }
+    if (c_size)
+    {
+        mem_buff2 = malloc((a_size + c_size) * omp_threads);
+        if (!mem_buff2) {
+            memset(params, 0, sizeof(*params));
+            return 0;
+        }
     }
 
     params->A = mem_buff;
-    params->C = no_C ? NULL: mem_buff + a_size;
-    if (trans=='N'){
-        params->LDA = n;  // must be at least max(1, n)
-    } else {
-        params->LDA = k;  // must be at least max(1, k)
-    }
+    params->TRANSA="NT"[a_transposed];
+    params->C = mem_buff2;
     params->LDC = n;  // must be at least max(1, n)
     params->N = n;
     params->K = k;
@@ -2156,6 +2262,8 @@ release_syrk_params(SYRK_PARAMS_t * params)
 {
     free(params->A);
     params->A = NULL;
+    free(params->C);
+    params->C = NULL;
 }
 
 /**begin repeat
@@ -2168,11 +2276,9 @@ release_syrk_params(SYRK_PARAMS_t * params)
 
 /*
  *   uplo:  'U' - C is upper triangular matrix. 'L' - Lower triangular.
- *   trans: 'N' - No transpose, 'T' - Transpose, 'C' - Conjugate transpose.
  */
 static void
 @TYPE@_update_rankk_common(char uplo,
-                           char trans,
                            char **args,
                            npy_intp *dimensions,
                            npy_intp *steps,
@@ -2183,34 +2289,73 @@ static void
 
     INIT_OUTER_LOOP_3
 
-    if (trans == 'N') {
-        n = (fortran_int) dimensions[0];
-        k = (fortran_int) dimensions[1];
-    }
-    else {
-        /* TODO: fix trans != N case. currently this branch is never called
-           because gufunc_general.py does the transpose so that this function
-           is always called with trans == 'N'
-         */
-        k = (fortran_int) dimensions[0];
-        n = (fortran_int) dimensions[1];
-    }
+    npy_intp step_n, step_k;
+    n = (fortran_int) dimensions[0];
+    k = (fortran_int) dimensions[1];
+    step_n = steps[0];
+    step_k = steps[1];
 
     if (k == 0 || n == 0)
         return; /* output array will be empty, as one of its inner dimensions will be 0 */
 
     size_t sot = sizeof(@typ@);
 
-    if (init_syrk_params(&params, n, k, trans, steps, sot, 0))
+    int max_threads=1, nthreads=1, orig_threads=1;
+    int use_openmp = have_openmp && dN > 1;
+    if (use_openmp)
+    {
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
+        }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+    }
+
+    if (init_syrk_params(&params, n, k, steps, sot, nthreads, 0))
     {
         LINEARIZE_DATA_t a_in, c_in, r_out;
-        init_linearize_data(&a_in, k, n, steps[1], steps[0]);
+        if (params.A) {
+            /*
+             * Input matrix isn't dense. Since BLAS routine expects that in
+             * contiguous memory locations, flatten input into params.A.
+             */
+            init_linearize_data(&a_in, k, n, step_k, step_n);
+        }
         init_linearize_data(&c_in, n, n, steps[3], steps[2]);
         init_linearize_data(&r_out, n, n, steps[5], steps[4]);
 
-        BEGIN_OUTER_LOOP_3
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.C, args[1], &c_in);
+        /* Don't use BEGIN_OUTER_LOOP3 template as we need to increment
+         * offsets on a per-thread basis in the parallel for loop instead
+         */
+
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+
+            /* With OpenMP threads, params.A is size n * k * threads
+             *                      params.C is size n * n * threads
+             * To avoid thread conflicts, A, C point to a specific offset for
+             * each thread
+             */
+
+            OMP_SET_ID
+
+            void *A;
+            void *C = (void*)((char*)params.C + params.C_size_bytes * ID);
+
+            if (params.A)
+            {
+                A = (void*)((char*)params.A + params.A_size_bytes * ID);
+                linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            } else
+            {
+                A = args[0] + s0 * N_;
+            }
+            linearize_@TYPE@_matrix(C, args[1] + s1 * N_, &c_in);
 
             /*
              * To get rank-k update, invoke syrk_.
@@ -2219,25 +2364,27 @@ static void
              * alpha*A'*A + beta*c
              */
              FNAME(@SYRK@)(&uplo,
-                           &trans,
+                           &params.TRANSA,
                            &params.N,
                            &params.K,
                            (void*)&@one@, // alpha (default=1.0)
-                           params.A,
+                           A,
                            &params.LDA,
                            (void*)&@one@, // beta (default=1.0)
-                           params.C,
+                           C,
                            &params.LDC);
 
             /* Copy Fortran matrix returned by SYRK to output argument */
             if (symmetric)
             {
-                make_symmetric_@TYPE@_matrix(uplo, params.N, params.C);
+                make_symmetric_@TYPE@_matrix(uplo, params.N, C);
             }
-            delinearize_@TYPE@_matrix(args[2], params.C, &r_out);
+            delinearize_@TYPE@_matrix(args[2] + s2 * N_, C, &r_out);
         END_OUTER_LOOP
 
         release_syrk_params(&params);
+        if (use_openmp)
+            omp_set_num_threads(orig_threads);
     }
 }
 
@@ -2245,38 +2392,36 @@ static void
 @TYPE@_update_rankk_down(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('L', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_common('L', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_up(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('U', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_common('U', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_down_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('L', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_common('L', args, dimensions, steps, 1);
 }
 
 static void
 @TYPE@_update_rankk_up_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_common('U', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_common('U', args, dimensions, steps, 1);
 }
 
 
 /*
  *   uplo:  'U' - C is upper triangular matrix. 'L' - Lower triangular.
- *   trans: 'N' - No transpose, 'T' - Transpose, 'C' - Conjugate transpose.
  */
 static void
 @TYPE@_update_rankk_no_c_common(char uplo,
-                                char trans,
                                 char **args,
                                 npy_intp *dimensions,
                                 npy_intp *steps,
@@ -2287,49 +2432,69 @@ static void
 
     INIT_OUTER_LOOP_2
 
-    if (trans == 'N') {
-        n = (fortran_int) dimensions[0];
-        k = (fortran_int) dimensions[1];
-    }
-    else {
-        /* TODO: fix trans != N case. currently this branch is never called
-           because gufunc_general.py does the transpose so that this function
-           is always called with trans == 'N'
-         */
-        k = (fortran_int) dimensions[0];
-        n = (fortran_int) dimensions[1];
-    }
+    npy_intp step_n, step_k;
+    n = (fortran_int) dimensions[0];
+    k = (fortran_int) dimensions[1];
+    step_n = steps[0];
+    step_k = steps[1];
 
     if (k == 0 || n == 0)
         return; /* output array will be empty, as one of its inner dimensions will be 0 */
 
     size_t sot = sizeof(@typ@);
 
+    int max_threads=1, nthreads=1, orig_threads=1;
+    int use_openmp = have_openmp && dN > 1;
+    if (use_openmp)
+    {
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
+        }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+    }
 
-    int avoid_C_allocation = 1;
-    if (init_syrk_params(&params, n, k, trans, steps, sot, avoid_C_allocation))
+    if (init_syrk_params(&params, n, k, steps, sot, nthreads, 1))
     {
         LINEARIZE_DATA_t a_in, r_out;
-        init_linearize_data(&a_in, k, n, steps[1], steps[0]);
+        if (params.A) {
+            /*
+             * Input matrix isn't dense. Since BLAS routine expects that in
+             * contiguous memory locations, flatten input into params.A.
+             */
+            init_linearize_data(&a_in, k, n, step_k, step_n);
+        }
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
 
-        BEGIN_OUTER_LOOP_2
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
 
+            OMP_SET_ID
+
+            void *A;
+            void *C;
+
+            if (params.A)
+            {
+                A = (void*)((char*)params.A + params.A_size_bytes * ID);
+                linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            } else
+            {
+                A = args[0] + s0 * N_;
+            }
 
             // params.C will be NULL: called init_syrk_params with no_C=1
             void *pC;
-            if (avoid_C_allocation)
-            {
-                // operate on the output array directly
-                zero_@TYPE@_matrix(args[1], &r_out);
-                pC = args[1];
-            } else {
-                linearize_@TYPE@_matrix(params.C, args[1], &a_in);
-                zero_@TYPE@_matrix(params.C, &r_out);
-                pC = params.C;
-            }
 
+            // operate on the output array directly
+            C = args[1] + s1 * N_;
+            zero_@TYPE@_matrix(C, &r_out);
 
             /*
              * To get rank-k update, invoke syrk_.
@@ -2338,31 +2503,31 @@ static void
              * alpha*A'*A + beta*c
              */
              FNAME(@SYRK@)(&uplo,
-                           &trans,
+                           &params.TRANSA,
                            &params.N,
                            &params.K,
                            (void*)&@one@, // alpha (default=1.0)
-                           params.A,
+                           A,
                            &params.LDA,
                            (void*)&@zero@, // beta (default=0.0)
-                           pC,  // C
+                           C,
                            &params.LDC);
 
             if (symmetric)
             {
-                make_symmetric_@TYPE@_matrix(uplo, params.N, pC);
+                make_symmetric_@TYPE@_matrix(uplo, params.N, C);
             }
 
-            /* Copy Fortran matrix returned by SYRK to output argument */
-            /* when parms.C is NULL we will have to call
+            /* Note: SYRK output, C, is stored in Fortran order
+             * when symmetric is false, we will have to call
              * out.swapaxes(-2, -1) in the Python caller
              */
-            if (avoid_C_allocation == 0) {
-                delinearize_@TYPE@_matrix(args[1], params.C, &r_out);
-            }
+
         END_OUTER_LOOP
 
         release_syrk_params(&params);
+        if (use_openmp)
+            omp_set_num_threads(orig_threads);
     }
 }
 
@@ -2370,29 +2535,30 @@ static void
 @TYPE@_update_rankk_no_c_down(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('L', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_no_c_common('L', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_no_c_up(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('U', 'N', args, dimensions, steps, 0);
+    @TYPE@_update_rankk_no_c_common('U', args, dimensions, steps, 0);
 }
 
 static void
 @TYPE@_update_rankk_no_c_down_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('L', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_no_c_common('L', args, dimensions, steps, 1);
 }
 
 static void
 @TYPE@_update_rankk_no_c_up_sym(char **args, npy_intp *dimensions,
                     npy_intp *steps, void *NPY_UNUSED(func))
 {
-    @TYPE@_update_rankk_no_c_common('U', 'N', args, dimensions, steps, 1);
+    @TYPE@_update_rankk_no_c_common('U', args, dimensions, steps, 1);
 }
+
 
 /**end repeat**/
 
@@ -2995,6 +3161,10 @@ typedef struct gesv_params_struct
     void *B; /* B is (N,NRHS) of base type */
     fortran_int * IPIV; /* IPIV is (N) */
 
+    fortran_int A_size_bytes;
+    fortran_int B_size_bytes;
+    fortran_int IPIV_size_bytes;
+
     fortran_int N;
     fortran_int NRHS;
     fortran_int LDA;
@@ -3013,18 +3183,23 @@ typedef struct gesv_params_struct
  * Handles buffer allocation
  */
 static inline int
-init_@lapack_func@(GESV_PARAMS_t *params, fortran_int N, fortran_int NRHS)
+init_@lapack_func@(GESV_PARAMS_t *params, fortran_int N, fortran_int NRHS,
+                   int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *a, *b, *ipiv;
-    mem_buff = malloc(N*N*sizeof(@ftyp@) +
-                      N*NRHS*sizeof(@ftyp@) +
-                      N*sizeof(fortran_int));
+    params->A_size_bytes = N*N*sizeof(@ftyp@);
+    params->B_size_bytes = N*NRHS*sizeof(@ftyp@);
+    params->IPIV_size_bytes = N*sizeof(fortran_int);
+
+    mem_buff = malloc(params->A_size_bytes*omp_threads +
+                      params->B_size_bytes*omp_threads +
+                      params->IPIV_size_bytes*omp_threads);
     if (!mem_buff)
         goto error;
     a = mem_buff;
-    b = a + N*N*sizeof(@ftyp@);
-    ipiv = b + N*NRHS*sizeof(@ftyp@);
+    b = a + params->A_size_bytes*omp_threads;
+    ipiv = b + params->B_size_bytes*omp_threads;
 
     params->A = a;
     params->B = b;
@@ -3051,13 +3226,13 @@ release_@lapack_func@(GESV_PARAMS_t *params)
 }
 
 static inline fortran_int
-call_@lapack_func@(GESV_PARAMS_t *params)
+call_@lapack_func@(GESV_PARAMS_t *params, void *A, void *B, fortran_int *IPIV)
 {
     fortran_int rv;
     LAPACK(@lapack_func@)(&params->N, &params->NRHS,
-                          params->A, &params->LDA,
-                          params->IPIV,
-                          params->B, &params->LDB,
+                          A, &params->LDA,
+                          IPIV,
+                          B, &params->LDB,
                           &rv);
     return rv;
 }
@@ -3071,29 +3246,58 @@ static void
     int error_occurred = get_fp_invalid_and_clear();
     INIT_OUTER_LOOP_3
 
+    int max_threads=1, nthreads=1, orig_threads=1;
+    int use_openmp = have_openmp && dN > 1;
+    if (use_openmp)
+
+    {
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
+        }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+    }
+
     n = (fortran_int)dimensions[0];
     nrhs = (fortran_int)dimensions[1];
-    if (init_@lapack_func@(&params, n, nrhs)) {
+    if (init_@lapack_func@(&params, n, nrhs, nthreads)) {
         LINEARIZE_DATA_t a_in, b_in, r_out;
 
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&b_in, nrhs, n, steps[3], steps[2]);
         init_linearize_data(&r_out, nrhs, n, steps[5], steps[4]);
 
-        BEGIN_OUTER_LOOP_3
+        // BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads) schedule(static)
+        for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.B, args[1], &b_in);
-            not_ok =call_@lapack_func@(&params);
+
+            OMP_SET_ID
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
+            not_ok =call_@lapack_func@(&params, A, B, IPIV);
             if (!not_ok) {
-                delinearize_@TYPE@_matrix(args[2], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[2], &r_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &r_out);
             }
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
+        if (use_openmp)
+            omp_set_num_threads(orig_threads);
+
     }
 
     set_fp_invalid_or_clear(error_occurred);
@@ -3108,27 +3312,54 @@ static void
     fortran_int n;
     INIT_OUTER_LOOP_3
 
+    int max_threads=1, nthreads=1, orig_threads=1;
+    int use_openmp = have_openmp && dN > 1;
+    if (use_openmp)
+    {
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
+        }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+    }
+
     n = (fortran_int)dimensions[0];
-    if (init_@lapack_func@(&params, n, 1)) {
+    if (init_@lapack_func@(&params, n, 1, nthreads)) {
         LINEARIZE_DATA_t a_in, b_in, r_out;
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&b_in, 1, n, 1, steps[2]);
         init_linearize_data(&r_out, 1, n, 1, steps[3]);
 
-        BEGIN_OUTER_LOOP_3
+        // BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.B, args[1], &b_in);
-            not_ok = call_@lapack_func@(&params);
+
+            OMP_SET_ID
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
+            not_ok = call_@lapack_func@(&params, A, B, IPIV);
             if (!not_ok) {
-                delinearize_@TYPE@_matrix(args[2], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[2], &r_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &r_out);
             }
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
+        if (use_openmp)
+            omp_set_num_threads(orig_threads);
     }
 
     set_fp_invalid_or_clear(error_occurred);
@@ -3143,22 +3374,47 @@ static void
     int error_occurred = get_fp_invalid_and_clear();
     INIT_OUTER_LOOP_2
 
+    int max_threads=1, nthreads=1, orig_threads=1;
+    int use_openmp = have_openmp && dN > 1;
+    if (use_openmp)
+    {
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
+        }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+    }
+
     n = (fortran_int)dimensions[0];
-    if (init_@lapack_func@(&params, n, n)) {
+    if (init_@lapack_func@(&params, n, n, nthreads)) {
         LINEARIZE_DATA_t a_in, r_out;
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
 
-        BEGIN_OUTER_LOOP_2
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            identity_@TYPE@_matrix(params.B, n);
-            not_ok = call_@lapack_func@(&params);
+
+            OMP_SET_ID
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            identity_@TYPE@_matrix(B, n);
+            not_ok = call_@lapack_func@(&params, A, B, IPIV);
             if (!not_ok) {
-                delinearize_@TYPE@_matrix(args[1], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[1] + s1 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[1], &r_out);
+                nan_@TYPE@_matrix(args[1] + s1 * N_, &r_out);
             }
         END_OUTER_LOOP
 
@@ -3166,6 +3422,8 @@ static void
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    if (use_openmp)
+        omp_set_num_threads(orig_threads);
 }
 
 /**end repeat**/
@@ -5263,6 +5521,8 @@ static void
 typedef struct potrs_params_struct {
     void *A;
     void *B;
+    fortran_int A_size_bytes;
+    fortran_int B_size_bytes;
     fortran_int N;
     fortran_int NRHS;
     fortran_int LDA;
@@ -5282,7 +5542,8 @@ static inline int
 init_@lapack_func@(POTRS_PARAMS_t *params,
                    char UPLO,
                    fortran_int N,
-                   fortran_int NRHS)
+                   fortran_int NRHS,
+                   int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *a, *b;
@@ -5290,12 +5551,14 @@ init_@lapack_func@(POTRS_PARAMS_t *params,
 
     a_size = N*N*sizeof(@ftyp@);
     b_size = N*NRHS*sizeof(@ftyp@);
-    mem_buff = malloc(a_size + b_size);
+    params->A_size_bytes = a_size;
+    params->B_size_bytes = b_size;
+    mem_buff = malloc(a_size*omp_threads + b_size*omp_threads);
     if (!mem_buff)
       goto error;
 
     a = mem_buff;
-    b = a + a_size;
+    b = a + a_size*omp_threads;
 
     params->A = (void*)a;
     params->B = (void*)b;
@@ -5308,6 +5571,7 @@ init_@lapack_func@(POTRS_PARAMS_t *params,
     return 1;
 
  error:
+    printf("init allocation error\n");
     free(mem_buff);
     memset(params, 0, sizeof(*params));
 
@@ -5323,20 +5587,21 @@ release_@lapack_func@(POTRS_PARAMS_t *params)
 }
 
 static inline int
-call_@lapack_func@(POTRS_PARAMS_t *params)
+call_@lapack_func@(POTRS_PARAMS_t *params, void *A, void *B)
 {
+
     fortran_int rv;
     LAPACK(@lapack_func_2@)(&params->UPLO,
                             &params->N,
-                            params->A, &params->LDA,
+                            A, &params->LDA,
                             &rv);
     if (0 != rv)
         return rv;
 
     LAPACK(@lapack_func@)(&params->UPLO,
                           &params->N, &params->NRHS,
-                          params->A, &params->LDA,
-                          params->B, &params->LDB,
+                          A, &params->LDA,
+                          B, &params->LDB,
                           &rv);
     return rv;
 }
@@ -5357,9 +5622,25 @@ static void
     fortran_int n, nrhs;
     INIT_OUTER_LOOP_3
 
+    int max_threads=1, nthreads=1, orig_threads=1;
+    int use_openmp = have_openmp && dN > 1;
+    if (use_openmp)
+    {
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0)
+            {
+                orig_threads = omp_get_num_threads();
+            }
+        }
+        max_threads = omp_get_max_threads();
+        nthreads = max_threads < dN ? max_threads : dN;
+        omp_set_num_threads(nthreads);
+    }
+
     n = (fortran_int)dimensions[0];
     nrhs = ndim?(fortran_int)dimensions[1]:1;
-    if (init_@lapack_func@(&params, uplo, n, nrhs)) {
+    if (init_@lapack_func@(&params, uplo, n, nrhs, nthreads)) {
         LINEARIZE_DATA_t a_in, b_in, r_out;
 
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
@@ -5371,20 +5652,30 @@ static void
             init_linearize_data(&r_out, 1, n, 0, steps[3]);
         }
 
-        BEGIN_OUTER_LOOP_3
+        // BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.B, args[1], &b_in);
-            not_ok = call_@lapack_func@(&params);
+
+            OMP_SET_ID
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
+            not_ok = call_@lapack_func@(&params, A, B);
             if (!not_ok) {
-                delinearize_@TYPE@_matrix(args[2], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[2], &r_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &r_out);
             }
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
+        if (use_openmp)
+            omp_set_num_threads(orig_threads);
     }
 
     set_fp_invalid_or_clear(error_occurred);
@@ -6738,7 +7029,33 @@ check_strict_fp( void )
 #endif
 
 
+static PyObject *
+Py_set_omp_threads(PyObject *self, PyObject *args)
+{
+    int nthreads;
+    if (!PyArg_ParseTuple(args, "i", &nthreads))
+        return NULL;
+    omp_set_num_threads(nthreads);
+    return PyLong_FromLong(nthreads);
+}
+
+static PyObject *
+Py_get_omp_threads(PyObject *self, PyObject *args)
+{
+    int nthreads = 1;
+    #pragma omp parallel
+    {
+        if (omp_get_thread_num() == 0)
+        {
+            nthreads = omp_get_num_threads();
+        }
+    }
+    return PyLong_FromLong(nthreads);
+}
+
 static PyMethodDef UMath_LinAlgMethods[] = {
+    {"set_gufunc_threads", (PyCFunction)Py_set_omp_threads, METH_VARARGS, NULL},
+    {"get_gufunc_threads", (PyCFunction)Py_get_omp_threads, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

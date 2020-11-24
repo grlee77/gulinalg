@@ -28,6 +28,18 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_cc_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = gulinalg.matrix_multiply(a, b, workers=workers)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_cf(self):
         """matrix multiply C layout by FORTRAN layout matrices"""
@@ -37,6 +49,18 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_cf_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.asfortranarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = gulinalg.matrix_multiply(a, b, workers=workers)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_fc(self):
         """matrix multiply FORTRAN layout by C layout matrices"""
@@ -46,6 +70,18 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_fc_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.asfortranarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = gulinalg.matrix_multiply(a, b, workers=workers)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_ff(self):
         """matrix multiply two FORTRAN layout matrices"""
@@ -55,7 +91,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
-    
+    def test_matrix_multiply_fc_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.asfortranarray(np.stack((a,) * n_outer, axis=0))
+            b = np.asfortranarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = gulinalg.matrix_multiply(a, b, workers=workers)
+            assert_allclose(res, ref)
+
     # C explicit outputs =======================================================
     def test_matrix_multiply_cc_c(self):
         """matrix multiply two C layout matrices, explicit C array output"""
@@ -66,6 +114,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_cc_c_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='C')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_cf_c(self):
         """matrix multiply C layout by FORTRAN layout matrices, explicit C array output"""
@@ -76,6 +137,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_cf_c_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.asfortranarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='C')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_fc_c(self):
         """matrix multiply FORTRAN layout by C layout matrices, explicit C array output"""
@@ -86,6 +160,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_fc_c_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.asfortranarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='C')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_ff_c(self):
         """matrix multiply two FORTRAN layout matrices, explicit C array output"""
@@ -96,6 +183,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_ff_c_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.asfortranarray(np.stack((a,) * n_outer, axis=0))
+            b = np.asfortranarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='C')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     # FORTRAN explicit outputs =================================================
     def test_matrix_multiply_cc_f(self):
@@ -107,6 +207,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_cc_f_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='F')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_cf_f(self):
         """matrix multiply C layout by FORTRAN layout matrices, explicit FORTRAN array output"""
@@ -117,6 +230,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_cf_f_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.asfortranarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='F')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_fc_f(self):
         """matrix multiply FORTRAN layout by C layout matrices, explicit FORTRAN array output"""
@@ -127,6 +253,19 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_fc_f_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.asfortranarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='F')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_matrix_multiply_ff_f(self):
         """matrix multiply two FORTRAN layout matrices, explicit FORTRAN array output"""
@@ -137,9 +276,22 @@ class TestNoCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_matrix_multiply_ff_f_batch(self):
+        """matrix multiply two C layout matrices"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a,b)
+            a = np.asfortranarray(np.stack((a,) * n_outer, axis=0))
+            b = np.asfortranarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='F')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
 # this class test the cases where there is at least one operand/output that
-# requires copy/rearranging. 
+# requires copy/rearranging.
 class TestWithCopy(TestCase):
     # No output specified (operation allocated) ================================
     def test_input_non_contiguous_1(self):
@@ -152,6 +304,20 @@ class TestWithCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_input_non_contiguous_1_batch(self):
+        """first input not contiguous"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N, 2)
+            b = np.random.randn(N, K)
+            ref = np.dot(a[..., 0], b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))[..., 0]
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            assert not a.flags.c_contiguous and not a.flags.f_contiguous
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='C')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_input_non_contiguous_2(self):
         """second input not contiguous"""
@@ -163,6 +329,20 @@ class TestWithCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_input_non_contiguous_2_batch(self):
+        """second input not contiguous"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K, 2)
+            ref = np.dot(a, b[..., 0])
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))[..., 0]
+            assert not b.flags.c_contiguous and not b.flags.f_contiguous
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='C')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_input_non_contiguous_3(self):
         """neither input contiguous"""
@@ -175,6 +355,21 @@ class TestWithCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_input_non_contiguous_3_batch(self):
+        """neither input contiguous"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N, 2)
+            b = np.random.randn(N, K, 2)
+            ref = np.dot(a[..., 0], b[..., 0])
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))[..., 0]
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))[..., 0]
+            assert not a.flags.c_contiguous and not a.flags.f_contiguous
+            assert not b.flags.c_contiguous and not b.flags.f_contiguous
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K), order='C')
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_output_non_contiguous(self):
         """output not contiguous"""
@@ -186,6 +381,20 @@ class TestWithCopy(TestCase):
         ref = np.dot(a,b)
         assert_allclose(res, ref)
 
+    def test_output_non_contiguous_batch(self):
+        """output not contiguous"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N)
+            b = np.random.randn(N, K)
+            ref = np.dot(a, b)
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K, 2), order='C')[..., 0]
+            assert not res.flags.c_contiguous and not res.flags.f_contiguous
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
 
     def test_all_non_contiguous(self):
         """neither input nor output contiguous"""
@@ -200,11 +409,28 @@ class TestWithCopy(TestCase):
         assert_allclose(res, ref)
 
 
+    def test_all_non_contiguous_batch(self):
+        """neither input nor output contiguous"""
+        n_outer = 4
+        for workers in [1, -1]:
+            a = np.random.randn(M, N, 2)
+            b = np.random.randn(N, K, 2)
+            ref = np.dot(a[..., 0], b[..., 0])
+            a = np.ascontiguousarray(np.stack((a,) * n_outer, axis=0))[..., 0]
+            b = np.ascontiguousarray(np.stack((b,) * n_outer, axis=0))[..., 0]
+            ref = np.stack((ref,) * n_outer, axis=0)
+            res = np.zeros((n_outer, M, K, 2), order='C')[..., 0]
+            assert not a.flags.c_contiguous and not a.flags.f_contiguous
+            assert not b.flags.c_contiguous and not b.flags.f_contiguous
+            assert not res.flags.c_contiguous and not res.flags.f_contiguous
+            gulinalg.matrix_multiply(a, b, workers=workers, out=res)
+            assert_allclose(res, ref)
+
     def test_stride_tricks(self):
         """test that matrices that are contiguous but have their dimension
         overlapped *copy*, as BLAS does not support them"""
         a = np.ascontiguousarray(np.random.randn(M + N))
-        a = np.lib.stride_tricks.as_strided(a, shape=(M,N), 
+        a = np.lib.stride_tricks.as_strided(a, shape=(M,N),
                                             strides=(a.itemsize, a.itemsize))
         b = np.ascontiguousarray(np.random.randn(N,K))
         res = gulinalg.matrix_multiply(a,b)

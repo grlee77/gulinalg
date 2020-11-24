@@ -3,6 +3,7 @@ Tests different implementations of solve functions.
 """
 
 from __future__ import print_function
+from itertools import product
 from unittest import TestCase, skipIf
 import numpy as np
 from numpy.testing import run_module_suite, assert_allclose
@@ -235,6 +236,70 @@ class TestSolveTriangular(TestCase):
                         [1.33333333, -0.66666667,  2.66666667]])
         res = gulinalg.solve_triangular(a, b)
         assert_allclose(res, ref, atol=1e-15)
+
+
+
+class TestSolve(TestCase):
+    """
+    Test A * x = B solver for vector and matrix B
+    """
+
+    def test_solve(self):
+        shape = (9, 9)
+        rstate = np.random.RandomState(1234)
+        dtypes = [np.float32, np.float64, np.complex64, np.complex128]
+        for nrhs, nbroadcast, workers, dtype in product([1, 10], [1, 16],
+                                                        [1, -1], dtypes):
+            a = rstate.randn(*shape).astype(dtype)
+            x = rstate.randn(shape[1], nrhs).astype(dtype)
+            if nbroadcast == 1:
+                x = np.squeeze(x)  # try with singleton dim removed
+            if a.dtype.kind == 'c':
+                rtype = a.real.dtype
+                a = a + 1j * rstate.randn(*a.shape).astype(rtype)
+                x = x + 1j * rstate.randn(*x.shape).astype(rtype)
+            b = np.dot(a, x)
+            if nbroadcast > 1:
+                a = np.stack((a,) * nbroadcast, axis=0)
+                b = np.stack((b,) * nbroadcast, axis=0)
+                x = np.stack((x,) * nbroadcast, axis=0)
+            x_sol = gulinalg.solve(a, b, workers=workers)
+            assert_allclose(x, x_sol, rtol=1e-4, atol=1e-4)
+
+
+class TestCholeskySolve(TestCase):
+    """
+    Test A * x = B cholesky solver for vector and matrix B
+    A is Hermitian symmetric
+    """
+
+    def test_chosolve(self):
+        shape = (4, 4)
+        rstate = np.random.RandomState(1234)
+        dtypes = [np.float32, np.float64, np.complex64, np.complex128]
+        for nrhs, nbroadcast, workers, dtype in product([1, 10], [1, 16],
+                                                        [1, -1], dtypes):
+            a = rstate.randn(*shape).astype(dtype)
+            x = rstate.randn(shape[1], nrhs).astype(dtype)
+            if nbroadcast == 1:
+                x = np.squeeze(x)  # try with singleton dim removed
+            if a.dtype.kind == 'c':
+                rtype = a.real.dtype
+                a = a + 1j * rstate.randn(*a.shape).astype(rtype)
+                x = x + 1j * rstate.randn(*x.shape).astype(rtype)
+            a = np.dot(a, np.conj(a).T)  # make Hermitian-symmetric a
+            a = a + 0.2*np.eye(shape[0], dtype=dtype)
+            b = np.dot(a, x)
+            if nbroadcast > 1:
+                a = np.stack((a,) * nbroadcast, axis=0)
+                b = np.stack((b,) * nbroadcast, axis=0)
+                x = np.stack((x,) * nbroadcast, axis=0)
+            x_sol = gulinalg.chosolve(a, b, workers=workers)
+            if a.real.dtype == np.float32:
+                rtol = atol = 1e-3
+            else:
+                rtol = atol = 1e-12
+            assert_allclose(x, x_sol, rtol=rtol, atol=atol)
 
 
 if __name__ == '__main__':

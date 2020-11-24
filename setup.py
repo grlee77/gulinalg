@@ -59,9 +59,6 @@ for key, val in npymath_info.items():
 # make sure the compiler can find conditional_omp.h
 extra_opts['include_dirs'] += [os.path.join(C_SRC_PATH)]
 
-extra_compile_args = []
-extra_link_args = []
-
 cmdclass = versioneer.get_cmdclass()
 
 if "GULINALG_DISABLE_OPENMP" not in os.environ:
@@ -96,8 +93,6 @@ if GULINALG_INTEL_OPENMP:
 gufunc_module = Extension('gulinalg._impl',
                           sources = MODULE_SOURCES,
                           depends = MODULE_DEPENDENCIES,
-                          extra_compile_args=extra_compile_args,
-                          extra_link_args=extra_link_args,
                           **extra_opts)
 
 packages = [

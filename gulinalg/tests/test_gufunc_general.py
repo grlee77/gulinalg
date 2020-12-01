@@ -114,6 +114,42 @@ class TestMatvecMultiplyNoCopy(TestCase):
         ref = np.dot(a, b)
         assert_allclose(res, ref)
 
+    def test_matvec_multiply_batch_b(self):
+        """Multiply C layout matrix with stack of vectors"""
+        a = np.ascontiguousarray(np.random.randn(M, N))
+        b = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.matvec_multiply(a, b)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_a(self):
+        """Multiply C layout stack of matrices with a vector"""
+        a = np.ascontiguousarray(np.random.randn(n_batch, M, N))
+        b = np.random.randn(N)
+        for workers in [1, -1]:
+            res = gulinalg.matvec_multiply(a, b)
+            ref = np.matmul(a, b[:, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_both(self):
+        """Multiply C layout stack of matrices and vectors"""
+        a = np.ascontiguousarray(np.random.randn(n_batch, M, N))
+        b = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.matvec_multiply(a, b)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_both_out(self):
+        """Multiply C layout stack of matrices and vectors"""
+        a = np.ascontiguousarray(np.random.randn(n_batch, M, N))
+        b = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            gulinalg.matvec_multiply(a, b, out=res)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
 
 class TestMatvecMultiplyWithCopy(TestCase):
     """
@@ -184,6 +220,15 @@ class TestMatvecMultiplyWithCopy(TestCase):
         res = gulinalg.matvec_multiply(a, b)
         ref = np.dot(a, b)
         assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_both_out_non_contiguous(self):
+        """Multiply C layout stack of matrices and vectors"""
+        a = np.random.randn(n_batch, M, N, 2)[..., 0]
+        b = np.random.randn(n_batch, N, 2)[..., 0]
+        for workers in [1, -1]:
+            gulinalg.matvec_multiply(a, b, out=res)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
 
 
 class TestMatvecMultiplyVector(TestCase):

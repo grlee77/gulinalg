@@ -2012,6 +2012,7 @@ static void
 typedef struct gemv_params_struct
 {
     void *A;
+    fortran_int A_size_bytes;
     fortran_int LDA;
     fortran_int M;
     fortran_int N;
@@ -2025,7 +2026,8 @@ init_gemv_params(GEMV_PARAMS_t *params,
                  fortran_int m,
                  fortran_int n,
                  npy_intp* steps,
-                 size_t sot)
+                 size_t sot,
+                 fortran_int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
 
@@ -2035,7 +2037,7 @@ init_gemv_params(GEMV_PARAMS_t *params,
      * array, allocate one.
      */
     matrix_desc a;
-    matrix_desc_init(&a, steps + 0, sot, m, n, 1);
+    matrix_desc_init(&a, steps + 0, sot, m, n, omp_threads);
     if (a.size)
     {
         npy_uint8 *current;
@@ -2108,9 +2110,11 @@ static void
         return;
     }
 
+    OMP_INIT_THREADS
+
     size_t sot = sizeof(@typ@);
 
-    if (init_gemv_params(&params, m, n, steps, sot))
+    if (init_gemv_params(&params, m, n, steps, sot, nthreads))
     {
         LINEARIZE_DATA_t a_in;
         if (params.A) {
@@ -2121,17 +2125,23 @@ static void
             init_linearize_data(&a_in, n, m, steps[1], steps[0]);
         }
 
-        BEGIN_OUTER_LOOP_3
+        //BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
+
             if (n == 0) {
                 /*
                  * If n = 0, each output matrix will be zero filled
                  * array of shape m.
                  */
-                memset(args[2], 0, m*sizeof(@typ@));
+                memset(args[2] + s2 * N_, 0, m*sizeof(@typ@));
             }
 
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+
             /* Actual flattening happens here. */
-            @typ@ *A = linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+            A = linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
 
             /*
              * If size of a vector is 1 (or matrix is 1x1), gufunc won't
@@ -2150,15 +2160,16 @@ static void
             FNAME(@GEMV@)(&params.TRANS,
                           &params.M, &params.N,
                           (void*)&@one@,  // alpha = 1, same as matrix_multiply.
-                          (void*)A, &params.LDA,
-                          (void*)args[1], &incx,
+                          A, &params.LDA,
+                          (void*)(args[1] + s1 * N_), &incx,
                           (void*)&@zero@, // beta = 0, same as matrix_multiply.
-                          (void*)args[2], &incy);
+                          (void*)(args[2] + s2 * N_), &incy);
 
         END_OUTER_LOOP
 
         release_gemv_params(&params);
     }
+    RESTORE_OMP_THREADS
 }
 
 /**end repeat**/

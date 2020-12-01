@@ -239,7 +239,7 @@ def matrix_multiply(a, b, workers=1, **kwargs):
     return out
 
 
-def matvec_multiply(a, b, **kwargs):
+def matvec_multiply(a, b, workers=1, **kwargs):
     """
     Compute matrix vector multiplication, with broadcasting
 
@@ -249,6 +249,10 @@ def matvec_multiply(a, b, **kwargs):
         Input array.
     b : (..., N) array
         Input array
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -276,7 +280,14 @@ def matvec_multiply(a, b, **kwargs):
            [278., 382.]])
 
     """
-    return _impl.matvec_multiply(a, b, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out =  _impl.matvec_multiply(a, b, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def quadratic_form(u,Q,v, **kwargs):

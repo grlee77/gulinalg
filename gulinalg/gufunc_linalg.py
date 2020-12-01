@@ -277,21 +277,34 @@ def cholesky(a, UPLO='L', **kwargs):
     Hermitian, positive-definite matrix into the product of a lower triangular
     matrix and its conjugate transpose.
 
-    A = LL*
+    When UPLO == 'L':
 
-    where L* is the positive-definite matrix.
+        A = LL*
+
+    where A is the positive-definite matrix and L is a lower-triangular
+    decomposition.
+
+    When UPLO == 'U', an upper triangular decomposition is produced:
+
+        A = U*U
+
+    where * indicates the Hermitian transpose.
 
     Parameters
     ----------
     a : (..., M, M) array
         Matrices for which compute the cholesky decomposition
+    UPLO : {'U', 'L'}, optional
+         Specifies whether the output of the decomposition is upper or lower
+         triangular.
 
     Returns
     -------
     l : (..., M, M) array
         Matrices for each element where each entry is the lower triangular
         matrix with strictly positive diagonal entries such that a = ll* for
-        all outer dimensions
+        all outer dimensions. Alternatively, for `UPLO='U'` the upper
+        triangular decomposition a=u*u is produced instead.
 
     See Also
     --------

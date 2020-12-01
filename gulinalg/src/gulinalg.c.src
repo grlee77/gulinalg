@@ -943,6 +943,39 @@ CDOUBLE_mulc(DOUBLECOMPLEX_t op1, DOUBLECOMPLEX_t op2)
     return result;
 }
 
+
+static inline float
+FLOAT_conj(float op1)
+{
+    return op1;
+}
+
+static inline double
+DOUBLE_conj(double op1)
+{
+    return op1;
+}
+
+static inline COMPLEX_t
+CFLOAT_conj(COMPLEX_t op1)
+{
+    COMPLEX_t result;
+    result.array[0] = op1.array[0];
+    result.array[1] = -op1.array[1];
+
+    return result;
+}
+
+static inline DOUBLECOMPLEX_t
+CDOUBLE_conj(DOUBLECOMPLEX_t op1)
+{
+    DOUBLECOMPLEX_t result;
+    result.array[0] = op1.array[0];
+    result.array[1] = -op1.array[1];
+
+    return result;
+}
+
 static inline void
 print_FLOAT(npy_float s)
 {
@@ -1392,6 +1425,63 @@ triu_@TYPE@_matrix(void *ptr, size_t n)
     for (i=1; i < n; ++i) {
         for (j=0; j<i; ++j) {
             matrix[j] = @cblas_type@_zero;
+        }
+        matrix += n;
+    }
+}
+/**end repeat**/
+
+/**begin repeat
+   #TYPE=FLOAT,DOUBLE#
+   #typ=float,double#
+   #conj=FLOAT_conj,DOUBLE_conj#
+ */
+static inline void
+tril_@TYPE@_conj(void *ptr, size_t n)
+{
+    // Nothing to conjugate for real-valued matrices
+    return;
+}
+
+static inline void
+triu_@TYPE@_conj(void *ptr, size_t n)
+{
+    // Nothing to conjugate for real-valued matrices
+    return;
+}
+/**end repeat**/
+
+
+/**begin repeat
+   #TYPE=CFLOAT,CDOUBLE#
+   #typ=COMPLEX_t,DOUBLECOMPLEX_t#
+   #conj=CFLOAT_conj,CDOUBLE_conj#
+ */
+static inline void
+tril_@TYPE@_conj(void *ptr, size_t n)
+{
+    /* conjugate the values in the lower triangular part of a matrix */
+    size_t i,j;
+    @typ@ *matrix = (@typ@*)ptr;
+    matrix++;
+    for (i = n-1; i > 0; --i) {
+        for (j = 0; j < i; ++j) {
+            matrix[j] = @conj@(matrix[j]);
+        }
+        matrix += n + 1;
+    }
+}
+
+static inline void
+triu_@TYPE@_conj(void *ptr, size_t n)
+{
+    /* conjugate the values in the upper triangular part of a matrix */
+    size_t i,j;
+    @typ@ *matrix = (@typ@*)ptr;
+    matrix += n;
+    for (i=1; i < n; ++i) {
+        for (j=0; j<i; ++j) {
+            matrix[j] = @conj@(matrix[j]);
         }
         matrix += n;
     }
@@ -6078,6 +6168,10 @@ static inline void
             not_ok = call_@potri@(&params, A);
             if (!not_ok) {
                 make_symmetric_@TYPE@_matrix(params.UPLO, params.N, A);
+                if (uplo == 'L')
+                    triu_@TYPE@_conj(A, params.N);
+                else
+                    tril_@TYPE@_conj(A, params.N);
                 delinearize_@TYPE@_matrix(args[1] + s1*N_, A, &r_out);
             } else {
                 error_occurred = 1;

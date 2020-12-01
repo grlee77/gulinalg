@@ -90,6 +90,14 @@ if GULINALG_INTEL_OPENMP:
     # Link to Intel OpenMP library (instead of libgomp default for GCC)
     extra_opts['libraries'] += ['iomp5']
 
+if 'extra_compile_args' not in extra_opts:
+    extra_opts['extra_compile_args'] = []
+
+if "msc" not in platform.python_compiler().lower():
+    # Need C99 for _Pragma support
+    # On windows, the MSVC-specific __pragma is used instead
+    extra_opts['extra_compile_args'] += ['-std=c99']
+
 gufunc_module = Extension('gulinalg._impl',
                           sources = MODULE_SOURCES,
                           depends = MODULE_DEPENDENCIES,

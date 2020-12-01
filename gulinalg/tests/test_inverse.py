@@ -197,21 +197,21 @@ class TestPoinv(TestCase):
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         L = gulinalg.poinv(np.tril(a), UPLO='L')
-        assert_allclose(np.matmul(a, L), np.eye(m), atol=1e-12)
+        assert_allclose(np.matmul(a, L), np.eye(m), atol=1e-11)
 
     def test_real_U(self):
         m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         U = gulinalg.poinv(np.triu(a), UPLO='U')
-        assert_allclose(np.matmul(a, U), np.eye(m), atol=1e-12)
+        assert_allclose(np.matmul(a, U), np.eye(m), atol=1e-11)
 
     def test_real_fortran(self):
         m = 10
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         L = gulinalg.poinv(np.tril(a), UPLO='L')
-        assert_allclose(np.matmul(a, L), np.eye(m), atol=1e-12)
+        assert_allclose(np.matmul(a, L), np.eye(m), atol=1e-11)
 
     def test_real_noncontiguous(self):
         m = 10
@@ -219,7 +219,7 @@ class TestPoinv(TestCase):
         a = np.dot(a, a.T)  # make Hermetian symmetric
         a = a[::2, ::2]
         L = gulinalg.poinv(np.tril(a), UPLO='L')
-        assert_allclose(np.matmul(a, L), np.eye(a.shape[0]), atol=1e-12)
+        assert_allclose(np.matmul(a, L), np.eye(a.shape[0]), atol=1e-11)
 
     def test_real_broadcast_L(self):
         m = 5
@@ -231,7 +231,7 @@ class TestPoinv(TestCase):
             L = gulinalg.poinv(np.tril(a), UPLO='L')
             assert_allclose(gulinalg.matrix_multiply(a, L),
                             np.stack((np.eye(m),) * nbatch, axis=0),
-                            atol=1e-12)
+                            atol=1e-11)
 
     def test_real_broadcast_U(self):
         m = 5
@@ -244,7 +244,7 @@ class TestPoinv(TestCase):
             U = gulinalg.poinv(np.triu(a), UPLO='U')
             assert_allclose(gulinalg.matrix_multiply(a, U),
                             np.stack((np.eye(m),) * nbatch, axis=0),
-                            atol=1e-12)
+                            atol=1e-11)
 
     def test_complex_L(self):
         m = 10
@@ -252,7 +252,7 @@ class TestPoinv(TestCase):
         a = a + 1j * np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
         L = gulinalg.poinv(a, UPLO='L')
-        assert_allclose(np.matmul(a, L), np.eye(m), atol=1e-12)
+        assert_allclose(np.matmul(a, L), np.eye(m), atol=1e-11)
 
     def test_complex_U(self):
         m = 10
@@ -260,7 +260,7 @@ class TestPoinv(TestCase):
         a = a + 1j * np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
         U = gulinalg.poinv(a, UPLO='U')
-        assert_allclose(np.matmul(a, U), np.eye(m), atol=1e-12)
+        assert_allclose(np.matmul(a, U), np.eye(m), atol=1e-11)
 
     def test_complex_broadcast_L(self):
         m = 5
@@ -273,7 +273,7 @@ class TestPoinv(TestCase):
             L = gulinalg.poinv(a, UPLO='L', workers=workers)
             assert_allclose(np.matmul(a, L),
                             np.stack((np.eye(m),) * nbatch),
-                            atol=1e-12)
+                            atol=1e-11)
 
     def test_complex_broadcast_U(self):
         m = 5
@@ -286,7 +286,7 @@ class TestPoinv(TestCase):
             U = gulinalg.poinv(a, UPLO='U', workers=workers)
             assert_allclose(np.matmul(a, U),
                             np.stack((np.eye(m),) * nbatch),
-                            atol=1e-12)
+                            atol=1e-11)
 
 
 if __name__ == '__main__':

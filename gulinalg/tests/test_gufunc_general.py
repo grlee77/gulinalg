@@ -812,5 +812,65 @@ class TestSyrk(TestCase):
             gulinalg.update_rankk(a, workers=0)
 
 
+class TestQuadraticForm(TestCase):
+
+    """Tests for Quadratic Form u * Q * v"""
+    def test_quadratic_c(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(M)
+        q = np.random.randn(M, N)
+        v = np.random.randn(N)
+        res = gulinalg.quadratic_form(u, q, v)
+        ref = np.dot(u[np.newaxis, :], np.dot(q, v[:, np.newaxis]))
+        assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_u(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(n_batch, M)
+        q = np.random.randn(M, N)
+        v = np.random.randn(N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :], np.dot(q, v[:, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_uv(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(n_batch, M)
+        q = np.random.randn(M, N)
+        v = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :],
+                                     np.dot(q, v[i, :, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_uqv(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(n_batch, M)
+        q = np.random.randn(n_batch, M, N)
+        v = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :],
+                                     np.dot(q[i, ...], v[i, :, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_uqv_contiguity(self):
+        """test vectorized matrix multiply"""
+        u = np.asfortranarray(np.random.randn(n_batch, M))
+        q = np.random.randn(n_batch, M, N, 2)[..., 0]  # non-contiguous
+        v = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :],
+                                     np.dot(q[i, ...], v[i, :, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
+
+
 if __name__ == '__main__':
     run_module_suite()

@@ -290,7 +290,7 @@ def matvec_multiply(a, b, workers=1, **kwargs):
     return out
 
 
-def quadratic_form(u,Q,v, **kwargs):
+def quadratic_form(u, Q, v, workers=1, **kwargs):
     """
     Compute the quadratic form uQv, with broadcasting
 
@@ -298,12 +298,14 @@ def quadratic_form(u,Q,v, **kwargs):
     ----------
     u : (..., M) array
         The u vectors of the quadratic form uQv
-
     Q : (..., M, N) array
         The Q matrices of the quadratic form uQv
-
     v : (..., N) array
         The v vectors of the quadratic form uQv
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -338,8 +340,14 @@ def quadratic_form(u,Q,v, **kwargs):
     12.0
 
     """
-    return _impl.quadratic_form(u, Q, v, **kwargs)
-
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out =  _impl.quadratic_form(u, Q, v, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 def update_rank1(a, b, c, conjugate=True, **kwargs):
     """

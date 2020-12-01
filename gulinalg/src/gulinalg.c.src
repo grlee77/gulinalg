@@ -5578,19 +5578,24 @@ static void
     ptrdiff_t Q_column_step = (ptrdiff_t)steps[2];
     ptrdiff_t v_step = (ptrdiff_t)steps[3];
 
+    OMP_INIT_THREADS
+
     if ((0 == (Q_row_step % sizeof(@ftyp@))) &&
         (0 == (u_step % sizeof(@ftyp@)))) {
         /* use blas loops for dot */
-        BEGIN_OUTER_LOOP_4
+        //BEGIN_OUTER_LOOP_4
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
             size_t column;
             npy_uint8 *u, *Q, *v;
             @typ@ *r;
             @typ@ accum = @zero@;
 
-            u = (npy_uint8 *)args[0]; /* u (m)   [in] */
-            Q = (npy_uint8 *)args[1]; /* Q (m,n) [in] */
-            v = (npy_uint8 *)args[2]; /* v (n)   [in] */
-            r = (@typ@ *)args[3];   /* result  [out] */
+            u = (npy_uint8 *)(args[0] + s0 * N_); /* u (m)   [in] */
+            Q = (npy_uint8 *)(args[1] + s1 * N_); /* Q (m,n) [in] */
+            v = (npy_uint8 *)(args[2] + s2 * N_); /* v (n)   [in] */
+            r = (@typ@ *)(args[3] + s3 * N_);   /* result  [out] */
             /* sum (compute u * Q[i] * v[i]) for all i.
                Q[i] are the different columns on Q */
 
@@ -5613,10 +5618,10 @@ static void
             npy_uint8 *u, *Q, *v;
             @typ@ *r;
             @typ@ accum = @zero@;
-            u = (npy_uint8 *)args[0]; /* u (m)   [in] */
-            Q = (npy_uint8 *)args[1]; /* Q (m,n) [in] */
-            v = (npy_uint8 *)args[2]; /* v (n)   [in] */
-            r = (@typ@ *)args[3];   /* result  [out] */
+            u = (npy_uint8 *)(args[0] + s0 * N_); /* u (m)   [in] */
+            Q = (npy_uint8 *)(args[1] + s1 * N_); /* Q (m,n) [in] */
+            v = (npy_uint8 *)(args[2] + s2 * N_); /* v (n)   [in] */
+            r = (@typ@ *)(args[3] + s3 * N_);   /* result  [out] */
             /* sum (compute u * Q[i] * v[i]) for all i.
                Q[i] are the different columns on Q */
 
@@ -5632,6 +5637,7 @@ static void
             *r = accum;
         END_OUTER_LOOP
     }
+    RESTORE_OMP_THREADS
 }
 /**end repeat**/
 

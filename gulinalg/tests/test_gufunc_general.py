@@ -145,6 +145,7 @@ class TestMatvecMultiplyNoCopy(TestCase):
         """Multiply C layout stack of matrices and vectors"""
         a = np.ascontiguousarray(np.random.randn(n_batch, M, N))
         b = np.random.randn(n_batch, N)
+        res = np.zeros((n_batch, M), dtype=a.dtype)
         for workers in [1, -1]:
             gulinalg.matvec_multiply(a, b, out=res)
             ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
@@ -225,6 +226,7 @@ class TestMatvecMultiplyWithCopy(TestCase):
         """Multiply C layout stack of matrices and vectors"""
         a = np.random.randn(n_batch, M, N, 2)[..., 0]
         b = np.random.randn(n_batch, N, 2)[..., 0]
+        res = np.zeros((n_batch, M, 2), dtype=a.dtype)[..., 0]
         for workers in [1, -1]:
             gulinalg.matvec_multiply(a, b, out=res)
             ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]

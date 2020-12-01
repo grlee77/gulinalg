@@ -113,10 +113,20 @@ class TestLU(TestCase):
     def test_vector(self):
         """test vectorized LU decomposition"""
         a = np.ascontiguousarray(np.random.randn(10, 75, 50))
-        p, l, u = gulinalg.lu(a)
-        res = np.stack([np.dot(np.dot(p[i], l[i]), u[i])
-                        for i in range(len(a))])
-        assert_allclose(res, a)
+        for workers in [1, -1]:
+            p, l, u = gulinalg.lu(a, workers=workers)
+            res = np.stack([np.dot(np.dot(p[i], l[i]), u[i])
+                            for i in range(len(a))])
+            assert_allclose(res, a)
+
+    def test_vector_permute_l(self):
+        """test vectorized LU decomposition"""
+        a = np.ascontiguousarray(np.random.randn(10, 75, 50))
+        for workers in [1, -1]:
+            pl, u = gulinalg.lu(a, permute_l=True, workers=workers)
+            res = np.stack([np.dot(pl[i], u[i])
+                            for i in range(len(a))])
+            assert_allclose(res, a)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "

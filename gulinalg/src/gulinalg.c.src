@@ -3843,15 +3843,19 @@ typedef struct getrf_params_struct
     fortran_int M;
     fortran_int N;
     fortran_int LDA;
+    fortran_int A_size_bytes;
+    fortran_int IPIV_size_bytes
 } GETRF_PARAMS_t;
 
 static inline int
 init_getrf_func(GETRF_PARAMS_t *params, fortran_int M, fortran_int N,
-                 npy_intp *steps, size_t sot)
+                 npy_intp *steps, size_t sot, fortran_int omp_threads)
 {
-    const size_t a_size = M * N * sot;
+    const size_t a_size1 = M * N * sot;
+    const size_t a_size = a_size1 * omp_threads;
     fortran_int min_m_n = M < N ? M:N;
-    const size_t ipiv_size = min_m_n * sizeof(fortran_int);
+    const size_t ipiv_size1 = min_m_n * sizeof(fortran_int);
+    const size_t ipiv_size = ipiv_size1 * omp_threads;
     npy_uint8 *mem_buff = NULL;
     mem_buff = malloc(a_size + ipiv_size);
 
@@ -3861,6 +3865,8 @@ init_getrf_func(GETRF_PARAMS_t *params, fortran_int M, fortran_int N,
         return 0;
     }
 
+    params->A_size_bytes = a_size1;
+    params->IPIV_size_bytes = ipiv_size1;
     params->A = mem_buff;
     params->IPIV = (fortran_int *)(mem_buff + a_size);
     params->M = M;
@@ -3903,7 +3909,7 @@ static void
     * Variables to store non-core dimensions in a gufunc. It's easier to
     * explain using example. Say input is an array A of shape (10, M, N).
     * 10 is non-core dimension and MxN is the core dimension of the matrix
-    * to be decomposed in this method. outer_dim is non-core dimension i.e.
+    * to be decomposed in this method. outer_dim (dN) is non-core dimension i.e.
     *    outer_dim = 10
     * outer_steps are strides for the input and outputs i.e. if above array
     * is decomposed to matrices L and U of shapes (10, M, N) and U (10, N, N)
@@ -3915,7 +3921,7 @@ static void
     * num_in_out_params is the total number of input and outputs e.g.
     * it's 4 if A decomposes to P, L and U, and 3 if decomposes to L and U.
     */
-    size_t outer_dim = *dimensions++;
+    size_t dN = *dimensions++;  // must be named dN for OMP_THREAD_INIT macro
     ptrdiff_t outer_steps[4];
     size_t num_in_out_params  = permute ? 3 : 4;
     size_t i;
@@ -3945,7 +3951,9 @@ static void
         return;
     }
 
-    if (init_getrf_func(&params, m, n, steps, sizeof(@ftyp@)))
+    OMP_INIT_THREADS
+
+    if (init_getrf_func(&params, m, n, steps, sizeof(@ftyp@), nthreads))
     {
         LINEARIZE_DATA_t a_in, p_out, l_out, u_out;
         fortran_int k = m < n ? m : n;
@@ -3964,12 +3972,17 @@ static void
          * Repeat core operation i.e. LU decomposition of the matrix
          * for outer/non-core dimension.
          */
-        for (i = 0; i < outer_dim; ++i) {
+        #pragma omp parallel for num_threads(nthreads)
+        for (i = 0; i < dN; ++i) {
+            OMP_SET_ID
+
             fortran_int info;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
+            linearize_@TYPE@_matrix(A, args[0] + outer_steps[0] * i, &a_in);
             LAPACK(@lapack_func@)(&params.M, &params.N,
-                                  params.A, &params.LDA,
-                                  params.IPIV, &info);
+                                  A, &params.LDA,
+                                  IPIV, &info);
 
             if (!info) {
                 /*
@@ -3994,7 +4007,7 @@ static void
                     /* Copy non-diagonal elements. */
                     for (l = j+1; l < m; l++) {
                         element = (@ftyp@ *)L + m * j + l;
-                        *element = *((@ftyp@ *)params.A + m * j + l);
+                        *element = *((@ftyp@ *)A + m * j + l);
                     }
                 }
 
@@ -4002,7 +4015,7 @@ static void
                 for (j = 0; j < k; j++) {
                     for (l = j; l < n; l++) {
                         @ftyp@ *element = (@ftyp@ *)U + k * l + j;
-                        *element = *((@ftyp@ *)params.A + m * l + j);
+                        *element = *((@ftyp@ *)A + m * l + j);
                     }
                 }
 
@@ -4033,7 +4046,7 @@ static void
                     }
                     for (l = 0; l < k; ++l) {
                         /* IPIV indices start with 1 instead of 0 */
-                        int              t = params.IPIV[l] - 1;
+                        int              t = IPIV[l] - 1;
                         int            tmp = permutation_buf[l];
                         permutation_buf[l] = permutation_buf[t];
                         permutation_buf[t] = tmp;
@@ -4047,7 +4060,8 @@ static void
                     }
 
                     /* Copy P to corresponding output argument. */
-                    delinearize_@TYPE@_matrix(args[arg_i++], P, &p_out);
+                    delinearize_@TYPE@_matrix(args[arg_i] + outer_steps[arg_i] * i, P, &p_out);
+                    arg_i++;
 
                     /* P is copied to output, free memory. */
                     free(permutation_buf);
@@ -4055,12 +4069,13 @@ static void
                 }
                 else {
                     /* Permute rows of L using IPIV. */
-                    LAPACK(@laswp@)(&k, L, &m, &one, &k, params.IPIV, &minus_one);
+                    LAPACK(@laswp@)(&k, L, &m, &one, &k, IPIV, &minus_one);
                 }
 
                 /* Copy L and U to corresponding output arguments. */
-                delinearize_@TYPE@_matrix(args[arg_i++], L, &l_out);
-                delinearize_@TYPE@_matrix(args[arg_i], U, &u_out);
+                delinearize_@TYPE@_matrix(args[arg_i] + outer_steps[arg_i] * i, L, &l_out);
+                arg_i++;
+                delinearize_@TYPE@_matrix(args[arg_i] + outer_steps[arg_i] * i, U, &u_out);
 
                 // Free temporary L and U matrices.
                 free(L);
@@ -4074,20 +4089,24 @@ static void
             if (error_occurred) {
                 int arg_i = 1;
                 if (!permute) {
-                    nan_@TYPE@_matrix(args[arg_i++], &p_out);
+                    nan_@TYPE@_matrix(args[arg_i] + outer_steps[arg_i] * i, &p_out);
+                    arg_i++;
                 }
-                nan_@TYPE@_matrix(args[arg_i++], &l_out);
+                nan_@TYPE@_matrix(args[arg_i] + outer_steps[arg_i] * i, &l_out);
+                arg_i++;
                 nan_@TYPE@_matrix(args[arg_i], &u_out);
             }
 
             /* Move pointers to next non-core dimension */
-            update_pointers((npy_uint8**)args, outer_steps, num_in_out_params);
+            // Cannot use update_pointers within OpenMP parallel region
+            //update_pointers((npy_uint8**)args, outer_steps, num_in_out_params);
         }
 
         release_getrf_func(&params);
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 static void

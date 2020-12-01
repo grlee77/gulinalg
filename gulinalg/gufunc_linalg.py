@@ -741,7 +741,7 @@ def solve(A, B, workers=1, **kwargs):
     return out
 
 
-def lu(a, permute_l=False, **kwargs):
+def lu(a, permute_l=False, workers=1, **kwargs):
     """
     LU decomposition on the inner dimensions.
 
@@ -759,6 +759,10 @@ def lu(a, permute_l=False, **kwargs):
         Matrices for which compute the lu decomposition
     permute_l : bool
         Instead of returning P, L and U (default), return P*L and U.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -828,7 +832,15 @@ def lu(a, permute_l=False, **kwargs):
         else:
             gufunc = _impl.lu_n
 
-    return gufunc(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def qr(a, economy=False, **kwargs):

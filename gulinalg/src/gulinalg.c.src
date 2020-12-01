@@ -3397,6 +3397,7 @@ static void
 typedef struct potr_params_struct
 {
     void *A;
+    fortran_int A_size_bytes;
     fortran_int N;
     fortran_int LDA;
     char UPLO;
@@ -3411,12 +3412,16 @@ typedef struct potr_params_struct
  */
 
 static inline int
-init_@lapack_func@(POTR_PARAMS_t *params, char UPLO, fortran_int N)
+init_@lapack_func@(POTR_PARAMS_t *params, char UPLO, fortran_int N,
+                   fortran_int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *a;
 
-    mem_buff = malloc(N*N*sizeof(@ftyp@));
+    params->A_size_bytes = N*N*sizeof(@ftyp@);
+
+
+    mem_buff = malloc(params->A_size_bytes * omp_threads);
     if (!mem_buff)
         goto error;
 
@@ -3444,11 +3449,11 @@ release_@lapack_func@(POTR_PARAMS_t *params)
 }
 
 static inline fortran_int
-call_@lapack_func@(POTR_PARAMS_t *params)
+call_@lapack_func@(POTR_PARAMS_t *params, void *A)
 {
     fortran_int rv;
     LAPACK(@lapack_func@)(&params->UPLO,
-                          &params->N, params->A, &params->LDA,
+                          &params->N, A, &params->LDA,
                           &rv);
     return rv;
 }
@@ -3461,31 +3466,41 @@ static void
     fortran_int n;
     INIT_OUTER_LOOP_2
 
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
+
     n = (fortran_int)dimensions[0];
-    if (init_@lapack_func@(&params, uplo, n))
+    if (init_@lapack_func@(&params, uplo, n, nthreads))
     {
         LINEARIZE_DATA_t a_in, r_out;
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
-        BEGIN_OUTER_LOOP_2
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            not_ok = call_@lapack_func@(&params);
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+
+            not_ok = call_@lapack_func@(&params, A);
             if (!not_ok) {
                 if (uplo == 'L')
-                    triu_@TYPE@_matrix(params.A, params.N);
+                    triu_@TYPE@_matrix(A, params.N);
                 else
-                    tril_@TYPE@_matrix(params.A, params.N);
-                delinearize_@TYPE@_matrix(args[1], params.A, &r_out);
+                    tril_@TYPE@_matrix(A, params.N);
+                delinearize_@TYPE@_matrix(args[1] + s1 * N_, A, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[1], &r_out);
+                nan_@TYPE@_matrix(args[1] + s1 * N_, &r_out);
             }
         END_OUTER_LOOP
         release_@lapack_func@(&params);
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 static void

@@ -156,6 +156,10 @@ def inv(a, workers=1, **kwargs):
     ----------
     a : (..., M, M) array
         Matrices to be inverted
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -269,7 +273,7 @@ def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
     return gufunc(a, **kwargs)
 
 
-def cholesky(a, UPLO='L', **kwargs):
+def cholesky(a, UPLO='L', workers=1, **kwargs):
     """
     Compute the cholesky decomposition of `a`, with broadcasting
 
@@ -297,6 +301,10 @@ def cholesky(a, UPLO='L', **kwargs):
     UPLO : {'U', 'L'}, optional
          Specifies whether the output of the decomposition is upper or lower
          triangular.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -342,7 +350,14 @@ def cholesky(a, UPLO='L', **kwargs):
     else:
         gufunc = _impl.cholesky_up
 
-    return gufunc(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = gufunc(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def eig(a, **kwargs):
@@ -660,6 +675,10 @@ def solve(A, B, workers=1, **kw_args):
         Coefficient matrices.
     B : (..., M, N) array
         Ordinate or "dependent variable" values.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -983,6 +1002,10 @@ def chosolve(A, B, UPLO='L', workers=1, **kw_args):
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `A` ('L', default) or
          the upper triangular part ('U').
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------

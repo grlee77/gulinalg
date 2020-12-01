@@ -409,21 +409,21 @@ class TestQR(TestCase):
 class TestCholesky(TestCase):
     """Test Cholesky decomposition"""
     def test_real_L(self):
-        m = 50
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         L = gulinalg.cholesky(a, UPLO='L')
         assert_allclose(np.matmul(L, L.T), a)
 
     def test_real_U(self):
-        m = 50
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         U = gulinalg.cholesky(a, UPLO='U')
         assert_allclose(np.matmul(U.T, U), a)
 
-    def test_complex(self):
-        m = 50
+    def test_complex_L(self):
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = a + 1j * np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
@@ -431,7 +431,7 @@ class TestCholesky(TestCase):
         assert_allclose(np.matmul(L, np.conj(L).T), a)
 
     def test_complex_U(self):
-        m = 50
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = a + 1j * np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
@@ -439,7 +439,7 @@ class TestCholesky(TestCase):
         assert_allclose(np.matmul(np.conj(U).T, U), a)
 
     def test_real_noncontiguous(self):
-        m = 50
+        m = 10
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         a = a[::2, ::2]
@@ -447,20 +447,21 @@ class TestCholesky(TestCase):
         assert_allclose(np.matmul(L, L.T), a)
 
     def test_real_fortran(self):
-        m = 50
+        m = 10
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         L = gulinalg.cholesky(a, UPLO='L')
         assert_allclose(np.matmul(L, L.T), a)
 
-    def test_real_broadcast(self):
+    def test_real_broadcast_L(self):
         m = 5
         nbatch = 16
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         a = np.stack((a,) * nbatch, axis=0)
-        L = gulinalg.cholesky(a, UPLO='L')
-        assert_allclose(np.matmul(L, L.swapaxes(-2, -1)), a)
+        for workers in [1, -1]:
+            L = gulinalg.cholesky(a, UPLO='L', workers=workers)
+            assert_allclose(np.matmul(L, L.swapaxes(-2, -1)), a)
 
     def test_real_broadcast_U(self):
         m = 5
@@ -468,8 +469,9 @@ class TestCholesky(TestCase):
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         a = np.stack((a,) * nbatch, axis=0)
-        U = gulinalg.cholesky(a, UPLO='U')
-        assert_allclose(np.matmul(U.swapaxes(-2, -1), U), a)
+        for workers in [1, -1]:
+            U = gulinalg.cholesky(a, UPLO='U', workers=workers)
+            assert_allclose(np.matmul(U.swapaxes(-2, -1), U), a)
 
     def test_complex_broadcast_U(self):
         m = 5
@@ -478,8 +480,9 @@ class TestCholesky(TestCase):
         a = a + 1j * np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
         a = np.stack((a,) * nbatch, axis=0)
-        U = gulinalg.cholesky(a, UPLO='U')
-        assert_allclose(np.matmul(np.conj(U).swapaxes(-2, -1), U), a)
+        for workers in [1, -1]:
+            U = gulinalg.cholesky(a, UPLO='U', workers=workers)
+            assert_allclose(np.matmul(np.conj(U).swapaxes(-2, -1), U), a)
 
     def test_complex_broadcast_L(self):
         m = 5
@@ -488,8 +491,9 @@ class TestCholesky(TestCase):
         a = a + 1j * np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
         a = np.stack((a,) * nbatch, axis=0)
-        L = gulinalg.cholesky(a, UPLO='L')
-        assert_allclose(np.matmul(L, np.conj(L).swapaxes(-2, -1)), a)
+        for workers in [1, -1]:
+            L = gulinalg.cholesky(a, UPLO='L', workers=workers)
+            assert_allclose(np.matmul(L, np.conj(L).swapaxes(-2, -1)), a)
 
 
 if __name__ == '__main__':

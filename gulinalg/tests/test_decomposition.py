@@ -322,9 +322,11 @@ class TestQR(TestCase):
     def test_vector(self):
         """test vectorized QR decomposition"""
         a = np.ascontiguousarray(np.random.randn(10, 75, 50))
-        q, r = gulinalg.qr(a)
-        res = np.stack([np.dot(q[i], r[i]) for i in range(len(a))])
-        assert_allclose(res, a)
+        for economy in [False, True]:
+            for workers in [1, -1]:
+                q, r = gulinalg.qr(a, economy=economy, workers=workers)
+                res = np.stack([np.dot(q[i], r[i]) for i in range(len(a))])
+                assert_allclose(res, a)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "

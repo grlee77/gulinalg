@@ -4138,6 +4138,9 @@ typedef struct geqrf_params_struct
     fortran_int N;
     fortran_int LDA;
     fortran_int LWORK;
+    fortran_int A_size_bytes;
+    fortran_int TAU_size_bytes;
+    fortran_int WORK_size_bytes;
 } GEQRF_PARAMS_t;
 
 /**begin repeat
@@ -4152,7 +4155,8 @@ typedef struct geqrf_params_struct
  */
 
 static inline int
-init_@lapack_func@(GEQRF_PARAMS_t *params, fortran_int M, fortran_int N)
+init_@lapack_func@(GEQRF_PARAMS_t *params, fortran_int M, fortran_int N,
+                   fortran_int omp_threads)
 {
     /*
      * First get the optimal size of work array. geqrf calculates this by
@@ -4174,9 +4178,12 @@ init_@lapack_func@(GEQRF_PARAMS_t *params, fortran_int M, fortran_int N)
     }
 
     fortran_int min_m_n = M_ < N_ ? M_ : N_;
-    size_t a_size       = M_ * N_ * sizeof(@ftyp@);
-    size_t tau_size     = min_m_n * sizeof(@ftyp@);
-    size_t work_size    = (size_t)*(@fbasetyp@*)&work * sizeof(@ftyp@);
+    size_t a_size1       = M_ * N_ * sizeof(@ftyp@);
+    size_t a_size        = a_size1 * omp_threads;
+    size_t tau_size1     = min_m_n * sizeof(@ftyp@);
+    size_t tau_size      = tau_size1 * omp_threads;
+    size_t work_size1    = (size_t)*(@fbasetyp@*)&work * sizeof(@ftyp@);
+    size_t work_size     = work_size1 * omp_threads;
     npy_uint8 *mem_buff = malloc(a_size + tau_size + work_size);
     if (mem_buff == NULL) {
         return 0;
@@ -4188,7 +4195,10 @@ init_@lapack_func@(GEQRF_PARAMS_t *params, fortran_int M, fortran_int N)
     params->M     = M_;
     params->N     = N_;
     params->LDA   = M_;
-    params->LWORK = work_size;
+    params->LWORK = work_size1;
+    params->A_size_bytes = a_size1;
+    params->TAU_size_bytes = tau_size1;
+    params->WORK_size_bytes = work_size1;
 
     return 1;
 }
@@ -4226,20 +4236,29 @@ static void
     if (enforce_m) {
         k = m;
     }
+    OMP_INIT_THREADS
 
-    if (init_@lapack_func@(&params, m, n))
+    if (init_@lapack_func@(&params, m, n, nthreads))
     {
         LINEARIZE_DATA_t a_in, q_out, r_out;
         init_linearize_data(&a_in,  n, m, steps[1], steps[0]);
         init_linearize_data(&q_out, k, m, steps[3], steps[2]);
         init_linearize_data(&r_out, n, k, steps[5], steps[4]);
 
-        BEGIN_OUTER_LOOP_3
+        //BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
+
             fortran_int info;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *TAU = (void*)((char*)params.TAU + params.TAU_size_bytes * ID);
+            void *WORK = (void*)((char*)params.WORK + params.WORK_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             LAPACK(@lapack_func@)(&params.M, &params.N,
-                                  params.A, &params.LDA,
-                                  params.TAU, params.WORK,
+                                  A, &params.LDA,
+                                  TAU, WORK,
                                   &params.LWORK, &info);
 
             /*
@@ -4262,14 +4281,14 @@ static void
                 for (j = 0; j < k; j++) {
                     for (i = j; i < n; i++) {
                         @ftyp@ *element = (@ftyp@ *)R + k * i + j;
-                        *element = *((@ftyp@ *)params.A + m * i + j);
+                        *element = *((@ftyp@ *)A + m * i + j);
                     }
                 }
 
                 // LAPACK creates Q matrix from A and TAU in-place. So if
                 // expected Q matrix is a MxM orthogonal Matrix where M > N,
                 // allocate space and copy from MxN matrix A.
-                void *Q = params.A;
+                void *Q = A;
                 void *Q_buf = NULL;
                 if (k > n) {
                     Q_buf = malloc(k * k * sizeof(@ftyp@));
@@ -4280,7 +4299,7 @@ static void
 
                     Q = Q_buf;
                     for (i = 0; i < params.M * params.N; i++) {
-                        *((@ftyp@ *)Q + i) = *((@ftyp@ *)params.A + i);
+                        *((@ftyp@ *)Q + i) = *((@ftyp@ *)A + i);
                     }
                 }
 
@@ -4315,7 +4334,7 @@ static void
                                 &min_m_n,
                                 Q,
                                 &params.LDA,
-                                params.TAU,
+                                TAU,
                                 work_buff,
                                 &lwork,
                                 &info);
@@ -4329,8 +4348,8 @@ static void
                 }
 
                 // Copy matrices to corresponding output arguments.
-                delinearize_@TYPE@_matrix(args[1], Q, &q_out);
-                delinearize_@TYPE@_matrix(args[2], R, &r_out);
+                delinearize_@TYPE@_matrix(args[1] + s1 * N_, Q, &q_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, R, &r_out);
 
                 // Release Q buffer and R as they have already been
                 // copied to output.
@@ -4341,8 +4360,8 @@ static void
         error:
             if (error_occurred)
             {
-                nan_@TYPE@_matrix(args[1], &q_out);
-                nan_@TYPE@_matrix(args[2], &r_out);
+                nan_@TYPE@_matrix(args[1] + s1 * N_, &q_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &r_out);
             }
         END_OUTER_LOOP
 
@@ -4350,6 +4369,7 @@ static void
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 static void

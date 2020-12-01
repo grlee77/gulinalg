@@ -2260,7 +2260,7 @@ init_syrk_params(SYRK_PARAMS_t *params,
         a_size = n * k * sot;
     }
 
-    size_t c_size = no_C ? NULL : n * n * sot;
+    size_t c_size = no_C ? 0 : n * n * sot;
     params->A_size_bytes = a_size;
     params->C_size_bytes = c_size;
 
@@ -2497,9 +2497,6 @@ static void
             {
                 A = args[0] + s0 * N_;
             }
-
-            // params.C will be NULL: called init_syrk_params with no_C=1
-            void *pC;
 
             // operate on the output array directly
             C = args[1] + s1 * N_;

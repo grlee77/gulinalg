@@ -406,5 +406,47 @@ class TestQR(TestCase):
         assert_allclose(r[1], ref_r)
 
 
+class TestCholesky(TestCase):
+    """Test Cholesky decomposition"""
+    def test_real(self):
+        m = 50
+        a = np.ascontiguousarray(np.random.randn(m, m))
+        a = np.dot(a, a.T)  # make hermetian symmetric
+        L = gulinalg.cholesky(a, UPLO='L')
+        assert_allclose(np.matmul(L, L.T), a)
+
+    def test_complex(self):
+        m = 50
+        a = np.ascontiguousarray(np.random.randn(m, m))
+        a = a + 1j * np.ascontiguousarray(np.random.randn(m, m))
+        a = np.dot(a, np.conj(a).T)  # make hermetian symmetric
+        L = gulinalg.cholesky(a, UPLO='L')
+        assert_allclose(np.matmul(L, np.conj(L).T), a)
+
+    def test_real_noncontiguous(self):
+        m = 50
+        a = np.asfortranarray(np.random.randn(m, m))
+        a = np.dot(a, a.T)  # make hermetian symmetric
+        a = a[::2, ::2]
+        L = gulinalg.cholesky(a, UPLO='L')
+        assert_allclose(np.matmul(L, L.T), a)
+
+    def test_real_fortran(self):
+        m = 50
+        a = np.asfortranarray(np.random.randn(m, m))
+        a = np.dot(a, a.T)  # make hermetian symmetric
+        L = gulinalg.cholesky(a, UPLO='L')
+        assert_allclose(np.matmul(L, L.T), a)
+
+    def test_real_broadcast(self):
+        m = 5
+        nbatch = 16
+        a = np.asfortranarray(np.random.randn(m, m))
+        a = np.dot(a, a.T)  # make hermetian symmetric
+        a = np.stack((a,) * nbatch, axis=0)
+        L = gulinalg.cholesky(a, UPLO='L')
+        assert_allclose(np.matmul(L, L.swapaxes(-2, -1)), a)
+
+
 if __name__ == '__main__':
     run_module_suite()

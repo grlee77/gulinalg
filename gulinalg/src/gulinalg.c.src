@@ -1066,11 +1066,62 @@ dump_@TYPE@_matrix(const char* name,
 #define END_OUTER_LOOP  }
 
 #define OMP_SET_ID \
-    int ID;\
+        int ID;\
         if (have_openmp)\
             ID = omp_get_thread_num();\
         else\
             ID = 0;
+
+#ifdef _MSC_VER
+    #define OMP_INIT_THREADS \
+        int max_threads=1, nthreads=1, orig_threads=1; \
+        int use_openmp = have_openmp && dN > 1; \
+        if (use_openmp) \
+        { \
+            __pragma(omp parallel) \
+            { \
+                if (omp_get_thread_num() == 0) \
+                { \
+                    orig_threads = omp_get_num_threads(); \
+                } \
+            } \
+            max_threads = omp_get_max_threads(); \
+            nthreads = max_threads < dN ? max_threads : dN; \
+            omp_set_num_threads(nthreads); \
+        }
+
+    #define BEGIN_OUTER_LOOP_OMP \
+        __pragma(omp parallel for num_threads(nthreads)) \
+        for (N_ = 0; N_ < dN; N_++) { \
+            OMP_SET_ID
+#else
+    #define OMP_INIT_THREADS \
+        int max_threads=1, nthreads=1, orig_threads=1; \
+        int use_openmp = have_openmp && dN > 1; \
+        if (use_openmp) \
+        { \
+            _Pragma("omp parallel") \
+            { \
+                if (omp_get_thread_num() == 0) \
+                { \
+                    orig_threads = omp_get_num_threads(); \
+                } \
+            } \
+            max_threads = omp_get_max_threads(); \
+            nthreads = max_threads < dN ? max_threads : dN; \
+            omp_set_num_threads(nthreads); \
+        }
+
+    #define BEGIN_OUTER_LOOP_OMP \
+        _Pragma("omp parallel for num_threads(nthreads)") \
+        for (N_ = 0; N_ < dN; N_++) { \
+            OMP_SET_ID
+#endif
+
+#define RESTORE_OMP_THREADS \
+        if (use_openmp) \
+            omp_set_num_threads(orig_threads);
+
 
 static inline void
 update_pointers(npy_uint8** bases, ptrdiff_t* offsets, size_t count)
@@ -1080,7 +1131,6 @@ update_pointers(npy_uint8** bases, ptrdiff_t* offsets, size_t count)
         bases[i] += offsets[i];
     }
 }
-
 
 /* disable -Wmaybe-uninitialized as there is some code that generate false
    positives with this warning
@@ -1780,21 +1830,8 @@ static void
 
     INIT_OUTER_LOOP_3
 
-    int max_threads=1, nthreads=1, orig_threads=1;
-    int use_openmp = have_openmp && dN > 1;
-    if (use_openmp)
-    {
-        #pragma omp parallel
-        {
-            if (omp_get_thread_num() == 0)
-            {
-                orig_threads = omp_get_num_threads();
-            }
-        }
-        max_threads = omp_get_max_threads();
-        nthreads = max_threads < dN ? max_threads : dN;
-        omp_set_num_threads(nthreads);
-    }
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
 
     m = (fortran_int) dimensions[0];
     k = (fortran_int) dimensions[1];
@@ -1872,8 +1909,7 @@ static void
         END_OUTER_LOOP
 
         release_gemm_params(&params);
-        if (use_openmp)
-            omp_set_num_threads(orig_threads);
+        RESTORE_OMP_THREADS
     }
 }
 
@@ -2300,21 +2336,8 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    int max_threads=1, nthreads=1, orig_threads=1;
-    int use_openmp = have_openmp && dN > 1;
-    if (use_openmp)
-    {
-        #pragma omp parallel
-        {
-            if (omp_get_thread_num() == 0)
-            {
-                orig_threads = omp_get_num_threads();
-            }
-        }
-        max_threads = omp_get_max_threads();
-        nthreads = max_threads < dN ? max_threads : dN;
-        omp_set_num_threads(nthreads);
-    }
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
 
     if (init_syrk_params(&params, n, k, steps, sot, nthreads, 0))
     {
@@ -2383,8 +2406,7 @@ static void
         END_OUTER_LOOP
 
         release_syrk_params(&params);
-        if (use_openmp)
-            omp_set_num_threads(orig_threads);
+        RESTORE_OMP_THREADS
     }
 }
 
@@ -2443,21 +2465,8 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    int max_threads=1, nthreads=1, orig_threads=1;
-    int use_openmp = have_openmp && dN > 1;
-    if (use_openmp)
-    {
-        #pragma omp parallel
-        {
-            if (omp_get_thread_num() == 0)
-            {
-                orig_threads = omp_get_num_threads();
-            }
-        }
-        max_threads = omp_get_max_threads();
-        nthreads = max_threads < dN ? max_threads : dN;
-        omp_set_num_threads(nthreads);
-    }
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
 
     if (init_syrk_params(&params, n, k, steps, sot, nthreads, 1))
     {
@@ -2526,8 +2535,7 @@ static void
         END_OUTER_LOOP
 
         release_syrk_params(&params);
-        if (use_openmp)
-            omp_set_num_threads(orig_threads);
+        RESTORE_OMP_THREADS
     }
 }
 
@@ -3246,22 +3254,8 @@ static void
     int error_occurred = get_fp_invalid_and_clear();
     INIT_OUTER_LOOP_3
 
-    int max_threads=1, nthreads=1, orig_threads=1;
-    int use_openmp = have_openmp && dN > 1;
-    if (use_openmp)
-
-    {
-        #pragma omp parallel
-        {
-            if (omp_get_thread_num() == 0)
-            {
-                orig_threads = omp_get_num_threads();
-            }
-        }
-        max_threads = omp_get_max_threads();
-        nthreads = max_threads < dN ? max_threads : dN;
-        omp_set_num_threads(nthreads);
-    }
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
 
     n = (fortran_int)dimensions[0];
     nrhs = (fortran_int)dimensions[1];
@@ -3295,8 +3289,7 @@ static void
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
-        if (use_openmp)
-            omp_set_num_threads(orig_threads);
+        RESTORE_OMP_THREADS
 
     }
 
@@ -3312,21 +3305,8 @@ static void
     fortran_int n;
     INIT_OUTER_LOOP_3
 
-    int max_threads=1, nthreads=1, orig_threads=1;
-    int use_openmp = have_openmp && dN > 1;
-    if (use_openmp)
-    {
-        #pragma omp parallel
-        {
-            if (omp_get_thread_num() == 0)
-            {
-                orig_threads = omp_get_num_threads();
-            }
-        }
-        max_threads = omp_get_max_threads();
-        nthreads = max_threads < dN ? max_threads : dN;
-        omp_set_num_threads(nthreads);
-    }
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
 
     n = (fortran_int)dimensions[0];
     if (init_@lapack_func@(&params, n, 1, nthreads)) {
@@ -3358,8 +3338,7 @@ static void
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
-        if (use_openmp)
-            omp_set_num_threads(orig_threads);
+        RESTORE_OMP_THREADS
     }
 
     set_fp_invalid_or_clear(error_occurred);
@@ -3374,21 +3353,8 @@ static void
     int error_occurred = get_fp_invalid_and_clear();
     INIT_OUTER_LOOP_2
 
-    int max_threads=1, nthreads=1, orig_threads=1;
-    int use_openmp = have_openmp && dN > 1;
-    if (use_openmp)
-    {
-        #pragma omp parallel
-        {
-            if (omp_get_thread_num() == 0)
-            {
-                orig_threads = omp_get_num_threads();
-            }
-        }
-        max_threads = omp_get_max_threads();
-        nthreads = max_threads < dN ? max_threads : dN;
-        omp_set_num_threads(nthreads);
-    }
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
 
     n = (fortran_int)dimensions[0];
     if (init_@lapack_func@(&params, n, n, nthreads)) {
@@ -3422,8 +3388,7 @@ static void
     }
 
     set_fp_invalid_or_clear(error_occurred);
-    if (use_openmp)
-        omp_set_num_threads(orig_threads);
+    RESTORE_OMP_THREADS
 }
 
 /**end repeat**/
@@ -5622,21 +5587,8 @@ static void
     fortran_int n, nrhs;
     INIT_OUTER_LOOP_3
 
-    int max_threads=1, nthreads=1, orig_threads=1;
-    int use_openmp = have_openmp && dN > 1;
-    if (use_openmp)
-    {
-        #pragma omp parallel
-        {
-            if (omp_get_thread_num() == 0)
-            {
-                orig_threads = omp_get_num_threads();
-            }
-        }
-        max_threads = omp_get_max_threads();
-        nthreads = max_threads < dN ? max_threads : dN;
-        omp_set_num_threads(nthreads);
-    }
+    // set max_threads, nthreads, orig_threads, use_openmp
+    OMP_INIT_THREADS
 
     n = (fortran_int)dimensions[0];
     nrhs = ndim?(fortran_int)dimensions[1]:1;
@@ -5655,9 +5607,9 @@ static void
         // BEGIN_OUTER_LOOP_3
         #pragma omp parallel for num_threads(nthreads)
         for (N_ = 0; N_ < dN; N_++) {
-            int not_ok;
-
             OMP_SET_ID
+
+            int not_ok;
 
             void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
             void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
@@ -5674,8 +5626,7 @@ static void
         END_OUTER_LOOP
 
         release_@lapack_func@(&params);
-        if (use_openmp)
-            omp_set_num_threads(orig_threads);
+        RESTORE_OMP_THREADS
     }
 
     set_fp_invalid_or_clear(error_occurred);

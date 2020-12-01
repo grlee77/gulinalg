@@ -1100,8 +1100,8 @@ def chosolve(A, B, UPLO='L', workers=1, **kwargs):
     return out
 
 
-def solve_triangular(A, B, UPLO='L',
-                     transpose_type='N', unit_diagonal=False, **kwargs):
+def solve_triangular(A, B, UPLO='L', transpose_type='N', unit_diagonal=False,
+                     workers=1, **kwargs):
     """
     Solve the linear matrix equation A * X = B on the inner dimensions
     where A is a triangular matrix.
@@ -1110,24 +1110,24 @@ def solve_triangular(A, B, UPLO='L',
     ----------
     A : (..., M, M) array
         A triangular matrix.
-
     B : (..., M, N) or (..., M,) array
         Right hand side matrix in A * X = B.
-
     UPLO : {'U', 'L'}, optional
-         Specifies whether the calculation is done with the lower
-         triangular part of the elements in `A` ('L', default) or
-         the upper triangular part ('U').
-
+        Specifies whether the calculation is done with the lower
+        triangular part of the elements in `A` ('L', default) or
+        the upper triangular part ('U').
     transpose_type : {'N', 'T', 'C'}, optional
-         Transpose type which decides equation to be solved.
-         N => No transpose i.e. solve A * X = B
-         T => Transpose i.e. solve A^T * X = B
-         C => Conjugate transpose i.e. solve A^H * X = B
-
-     unit_diagonal : bool, optional
-         If True, the diagonal elements of 'a' are assumed to be 1 and are
-         not referenced.
+        Transpose type which decides equation to be solved.
+        N => No transpose i.e. solve A * X = B
+        T => Transpose i.e. solve A^T * X = B
+        C => Conjugate transpose i.e. solve A^H * X = B
+    unit_diagonal : bool, optional
+        If True, the diagonal elements of 'a' are assumed to be 1 and are
+        not referenced.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -1198,7 +1198,15 @@ def solve_triangular(A, B, UPLO='L',
     gufunc = getattr(_impl,
                      ext_method_prefix + UPLO + transpose_type + diagonal_type)
 
-    return gufunc(A, B, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(A, B, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def poinv(A, UPLO='L', workers=1, **kwargs):

@@ -5961,6 +5961,8 @@ typedef struct trtrs_params_struct {
     fortran_int N;
     fortran_int LDA;
     fortran_int LDB;
+    fortran_int A_size_bytes;
+    fortran_int B_size_bytes;
 } TRTRS_PARAMS_t;
 
 /**begin repeat
@@ -5972,14 +5974,17 @@ typedef struct trtrs_params_struct {
 static inline int
 init_@lapack_func@(TRTRS_PARAMS_t *params,
                    fortran_int    N,
-                   fortran_int    NRHS)
+                   fortran_int    NRHS,
+                   fortran_int    omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *a, *b;
-    size_t a_size, b_size;
+    size_t a_size1, b_size1, a_size, b_size;
 
-    a_size = N * N * sizeof(@ftyp@);
-    b_size = N * NRHS * sizeof(@ftyp@);
+    a_size1 = N * N * sizeof(@ftyp@);
+    b_size1 = N * NRHS * sizeof(@ftyp@);
+    a_size = a_size1 * omp_threads;
+    b_size = b_size1 * omp_threads;
     mem_buff = malloc(a_size + b_size);
     if (!mem_buff) {
         free(mem_buff);
@@ -5996,6 +6001,8 @@ init_@lapack_func@(TRTRS_PARAMS_t *params,
     params->N = N;
     params->LDA = N;
     params->LDB = N;
+    params->A_size_bytes = a_size1;
+    params->B_size_bytes = b_size1;
 
     return 1;
 }
@@ -6038,8 +6045,9 @@ static void
     if (n == 0) {
         return;
     }
+    OMP_INIT_THREADS
 
-    if (init_@lapack_func@(&params, n, nrhs)) {
+    if (init_@lapack_func@(&params, n, nrhs, nthreads)) {
         LINEARIZE_DATA_t a_in, b_in, r_out;
 
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
@@ -6051,21 +6059,28 @@ static void
             init_linearize_data(&r_out, 1, n, 0, steps[3]);
         }
 
-        BEGIN_OUTER_LOOP_3
+        //BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
+
             int info;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            linearize_@TYPE@_matrix(params.B, args[1], &b_in);
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *B = (void*)((char*)params.B + params.B_size_bytes * ID);
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            linearize_@TYPE@_matrix(B, args[1] + s1 * N_, &b_in);
             LAPACK(@lapack_func@)(&uplo, &trans, &diag,
                                   &params.N, &nrhs,
-                                  params.A, &params.LDA,
-                                  params.B, &params.LDB,
+                                  A, &params.LDA,
+                                  B, &params.LDB,
                                   &info);
 
             if (!info) {
-                delinearize_@TYPE@_matrix(args[2], params.B, &r_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, B, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[2], &r_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &r_out);
             }
         END_OUTER_LOOP
 
@@ -6073,6 +6088,7 @@ static void
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 #define SOLVE_TRIANGULAR(NDIM, UPLO, TRANS, DIAG)                \

@@ -168,9 +168,10 @@ class TestSolveTriangular(TestCase):
         a = np.stack([e for _ in range(10)])
         b = np.stack([np.array([[1, 0, 0], [0, 1, 0],
                                 [0, 0, 1], [0, 0, 0]]) for _ in range(10)])
-        x = gulinalg.solve_triangular(a, b, UPLO='U')
-        res = np.stack([np.dot(a[i], x[i]) for i in range(len(a))])
-        assert_allclose(res, b, atol=1e-15)
+        for workers in [1, -1]:
+            x = gulinalg.solve_triangular(a, b, UPLO='U', workers=workers)
+            res = np.stack([np.dot(a[i], x[i]) for i in range(len(a))])
+            assert_allclose(res, b, atol=1e-15)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "

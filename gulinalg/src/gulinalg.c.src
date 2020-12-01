@@ -5975,6 +5975,7 @@ SOLVE_TRIANGULAR(1, U, C, U)
 
 typedef struct potri_params_struct {
     void *A;
+    fortran_int A_size_bytes;
     fortran_int N;
     fortran_int LDA;
     char UPLO;
@@ -5990,20 +5991,22 @@ typedef struct potri_params_struct {
 static inline int
 init_@potri@(POTRI_PARAMS_t *params,
              char UPLO,
-             fortran_int N)
+             fortran_int N,
+             fortran_int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *a;
-    size_t a_size;
+    size_t a_size1;
 
-    a_size = N*N*sizeof(@ftyp@);
-    mem_buff = malloc(a_size);
+    a_size1 = N*N*sizeof(@ftyp@);
+    mem_buff = malloc(a_size1 * omp_threads);
     if (!mem_buff)
       goto error;
 
     a = mem_buff;
 
     params->A = (void*)a;
+    params->A_size_bytes = a_size1;
     params->N = N;
     params->LDA = N;
     params->UPLO = UPLO;
@@ -6026,12 +6029,12 @@ release_@potri@(POTRI_PARAMS_t *params)
 }
 
 static inline int
-call_@potri@(POTRI_PARAMS_t *params)
+call_@potri@(POTRI_PARAMS_t *params, void* A)
 {
     fortran_int rv;
     LAPACK(@potrf@)(&params->UPLO,
                     &params->N,
-                    params->A, &params->LDA,
+                    A, &params->LDA,
                     &rv);
     if (0!= rv) {
       return rv;
@@ -6039,7 +6042,7 @@ call_@potri@(POTRI_PARAMS_t *params)
 
     LAPACK(@potri@)(&params->UPLO,
                     &params->N,
-                    params->A, &params->LDA,
+                    A, &params->LDA,
                     &rv);
     return rv;
 }
@@ -6056,23 +6059,29 @@ static inline void
     fortran_int n;
     INIT_OUTER_LOOP_2
 
+    OMP_INIT_THREADS
+
     n = (fortran_int)dimensions[0];
-    if (init_@potri@(&params, uplo, n)) {
+    if (init_@potri@(&params, uplo, n, nthreads)) {
         LINEARIZE_DATA_t a_in, r_out;
 
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
 
-        BEGIN_OUTER_LOOP_2
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            not_ok = call_@potri@(&params);
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            linearize_@TYPE@_matrix(A, args[0] + s0*N_, &a_in);
+            not_ok = call_@potri@(&params, A);
             if (!not_ok) {
-                make_symmetric_@TYPE@_matrix(params.UPLO, params.N, params.A);
-                delinearize_@TYPE@_matrix(args[1], params.A, &r_out);
+                make_symmetric_@TYPE@_matrix(params.UPLO, params.N, A);
+                delinearize_@TYPE@_matrix(args[1] + s1*N_, A, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[1], &r_out);
+                nan_@TYPE@_matrix(args[1] + s1*N_, &r_out);
             }
         END_OUTER_LOOP
 
@@ -6080,6 +6089,7 @@ static inline void
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 static void

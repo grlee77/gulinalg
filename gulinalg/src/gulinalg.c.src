@@ -2193,6 +2193,7 @@ typedef struct ger_params_struct
     fortran_int LDA;
     fortran_int M;
     fortran_int N;
+    fortran_int A_size_bytes;
 } GER_PARAMS_t;
 
 static inline int
@@ -2200,9 +2201,11 @@ init_ger_params(GER_PARAMS_t *params,
                 fortran_int m,
                 fortran_int n,
                 npy_intp* steps,
-                size_t sot)
+                size_t sot,
+                fortran_int omp_threads)
 {
-    npy_uint8 *mem_buff = malloc(m * n * sot);
+    size_t asize1 = m * n * sot;
+    npy_uint8 *mem_buff = malloc(asize1 * omp_threads);
     if (!mem_buff) {
         memset(params, 0, sizeof(*params));
         return 0;
@@ -2212,6 +2215,7 @@ init_ger_params(GER_PARAMS_t *params,
     params->LDA = m;
     params->M = m;
     params->N = n;
+    params->A_size_bytes = asize1;
 
     return 1;
 }
@@ -2247,6 +2251,7 @@ static void
     fortran_int m, n;
 
     INIT_OUTER_LOOP_4
+    OMP_INIT_THREADS
 
     m = (fortran_int) dimensions[0];
     n = (fortran_int) dimensions[1];
@@ -2255,14 +2260,19 @@ static void
 
     size_t sot = sizeof(@typ@);
 
-    if (init_ger_params(&params, m, n, steps, sot))
+    if (init_ger_params(&params, m, n, steps, sot, nthreads))
     {
         LINEARIZE_DATA_t a_in, r_out;
         init_linearize_data(&a_in, n, m, steps[3], steps[2]);
         init_linearize_data(&r_out, n, m, steps[5], steps[4]);
 
-        BEGIN_OUTER_LOOP_4
-            linearize_@TYPE@_matrix(params.A, args[2], &a_in);
+        //BEGIN_OUTER_LOOP_4
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            linearize_@TYPE@_matrix(A, args[2] + s2 * N_, &a_in);
 
             /*
              * If size of a vector is 1 (or matrix is 1x1), gufunc won't
@@ -2282,24 +2292,25 @@ static void
             if (conjugate) {
                 FNAME(@GERC@)(&params.M, &params.N,
                              (void*)&@one@, // alpha
-                             (void*)args[0], &incx,
-                             (void*)args[1], &incy,
-                             params.A, &params.LDA);
+                             (void*)(args[0] + s0 * N_), &incx,
+                             (void*)(args[1] + s1 * N_), &incy,
+                             A, &params.LDA);
             }
             else {
                 FNAME(@GER@)(&params.M, &params.N,
                              (void*)&@one@, // alpha
-                             (void*)args[0], &incx,
-                             (void*)args[1], &incy,
-                             params.A, &params.LDA);
+                             (void*)(args[0] + s0 * N_), &incx,
+                             (void*)(args[1] + s1 * N_), &incy,
+                             A, &params.LDA);
             }
 
             /* Copy Fortran matrix returned by GER to output argument */
-            delinearize_@TYPE@_matrix(args[3], params.A, &r_out);
+            delinearize_@TYPE@_matrix(args[3] + s3 * N_, A, &r_out);
         END_OUTER_LOOP
 
         release_ger_params(&params);
     }
+    RESTORE_OMP_THREADS
 }
 
 static void

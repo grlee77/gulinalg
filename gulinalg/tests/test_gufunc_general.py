@@ -465,9 +465,10 @@ class TestUpdateRank1WithCopy(TestCase):
         c = np.ascontiguousarray(np.random.randn(M, N))
         assert not a.flags.c_contiguous and not a.flags.f_contiguous
         assert not b.flags.c_contiguous and not b.flags.f_contiguous
-        res = gulinalg.update_rank1(a, b, c)
-        ref = np.dot(a.reshape(M, 1), b.reshape(1, N)) + c
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.update_rank1(a, b, c, workers=workers)
+            ref = np.dot(a.reshape(M, 1), b.reshape(1, N)) + c
+            assert_allclose(res, ref)
 
     def test_input_non_contiguous_matrix(self):
         """Non contiguous matrix input"""
@@ -510,22 +511,24 @@ class TestUpdateRank1Vector(TestCase):
         a = np.ascontiguousarray(np.random.randn(10, M))
         b = np.ascontiguousarray(np.random.randn(10, N))
         c = np.ascontiguousarray(np.random.randn(10, M, N))
-        res = gulinalg.update_rank1(a, b, c)
-        assert res.shape == (10, M, N)
-        ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c[i]
-                        for i in range(len(c))])
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.update_rank1(a, b, c, workers=workers)
+            assert res.shape == (10, M, N)
+            ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c[i]
+                            for i in range(len(c))])
+            assert_allclose(res, ref)
 
     def test_broadcast(self):
         """test broadcast rank1 update"""
         a = np.ascontiguousarray(np.random.randn(10, M))
         b = np.ascontiguousarray(np.random.randn(10, N))
         c = np.ascontiguousarray(np.random.randn(M, N))
-        res = gulinalg.update_rank1(a, b, c)
-        assert res.shape == (10, M, N)
-        ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c
-                        for i in range(len(b))])
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.update_rank1(a, b, c, workers=workers)
+            assert res.shape == (10, M, N)
+            ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c
+                            for i in range(len(b))])
+            assert_allclose(res, ref)
 
     def test_nan_handling(self):
         """NaN in one output shouldn't contaminate remaining outputs"""

@@ -25,6 +25,9 @@ functions as gufuncs. The underlying implementation is BLAS based.
 - update_rank1: rank1 update over the inner dimensions,
   broadcasting
 
+- update_rankk: rankk update over the 2 inner dimensions,
+  broadcasting
+
 """
 
 from __future__ import division, absolute_import, print_function
@@ -360,7 +363,8 @@ def quadratic_form(u, Q, v, workers=1, **kwargs):
             _impl.set_gufunc_threads(orig_workers)
     return out
 
-def update_rank1(a, b, c, conjugate=True, **kwargs):
+
+def update_rank1(a, b, c, conjugate=True, workers=1, **kwargs):
     """
     Compute rank1 update, with broadcasting
 
@@ -368,16 +372,17 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
     ----------
     a : (..., M) array
         Input array.
-
     b : (..., N) array
         Input array
-
     c : (..., M, N) array
         Input array.
-
     conjugate : bool (default True)
         For complex numbers, use conjugate transpose of b instead of normal
         transpose. If false, use normal transpose.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -413,7 +418,15 @@ def update_rank1(a, b, c, conjugate=True, **kwargs):
     else:
         gufunc = _impl.update_rank1
 
-    return gufunc(a, b, c, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out =  gufunc(a, b, c, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
@@ -440,6 +453,10 @@ def update_rankk(a, c=None, UPLO='U', transpose_type='T', sym_out=True,
     sym_out: bool, optional
         If True, create a symmetric output by copying the upper (lower)
         triangular entries into the lower (upper) triangle.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------

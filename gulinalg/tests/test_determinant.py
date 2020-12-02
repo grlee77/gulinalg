@@ -16,21 +16,24 @@ class TestSlogdet(TestCase):
 
     def test_real(self):
         m = 3
-        a = np.random.randn(m, m)
+        rstate = np.random.RandomState(123)
+        a = rstate.randn(m, m)
         sign, logdet = gulinalg.slogdet(a)
         det = gulinalg.det(a)
         assert_allclose(det, sign * np.exp(logdet))
 
     def test_complex(self):
         m = 3
-        a = np.random.randn(m, m) + 1j * np.random.randn(m, m)
+        rstate = np.random.RandomState(123)
+        a = rstate.randn(m, m) + 1j * rstate.randn(m, m)
         sign, logdet = gulinalg.slogdet(a)
         det = gulinalg.det(a)
         assert_allclose(det, sign * np.exp(logdet))
 
     def test_real_vector(self):
         m = 3
-        a = np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(123)
+        a = rstate.randn(n_batch, m, m)
         for workers in [1, -1]:
             sign, logdet = gulinalg.slogdet(a, workers=workers)
             det = gulinalg.det(a, workers=workers)
@@ -38,7 +41,8 @@ class TestSlogdet(TestCase):
 
     def test_complex_vector(self):
         m = 3
-        a = np.random.randn(n_batch, m, m) + 1j*np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(123)
+        a = rstate.randn(n_batch, m, m) + 1j*rstate.randn(n_batch, m, m)
         for workers in [1, -1]:
             sign, logdet = gulinalg.slogdet(a, workers=workers)
             det = gulinalg.det(a, workers=workers)

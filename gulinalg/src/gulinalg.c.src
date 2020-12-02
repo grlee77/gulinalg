@@ -4446,6 +4446,15 @@ typedef struct geev_params_struct {
     fortran_int LDVL;
     fortran_int LDVR;
     fortran_int LWORK;
+    fortran_int A_size_bytes;
+    fortran_int WR_size_bytes;
+    fortran_int WI_size_bytes;
+    fortran_int VLR_size_bytes;
+    fortran_int VRR_size_bytes;
+    fortran_int WORK_size_bytes;
+    fortran_int W_size_bytes;
+    fortran_int VL_size_bytes;
+    fortran_int VR_size_bytes;
 
     char JOBVL;
     char JOBVR;
@@ -4506,7 +4515,8 @@ dump_geev_params(const char *name, GEEV_PARAMS_t* params)
    #zero=0.0f,0.0#
 */
 static inline int
-init_@lapack_func@(GEEV_PARAMS_t *params, char jobvl, char jobvr, fortran_int n)
+init_@lapack_func@(GEEV_PARAMS_t *params, char jobvl, char jobvr, fortran_int n,
+                   fortran_int omp_threads)
 {
     npy_uint8 *mem_buff=NULL;
     npy_uint8 *mem_buff2=NULL;
@@ -4525,20 +4535,20 @@ init_@lapack_func@(GEEV_PARAMS_t *params, char jobvl, char jobvr, fortran_int n)
     fortran_int rv;
 
     /* allocate data for known sizes (all but work) */
-    mem_buff = malloc(a_size + wr_size + wi_size +
+    mem_buff = malloc((a_size + wr_size + wi_size +
                       vlr_size + vrr_size +
-                      w_size + vl_size + vr_size);
+                      w_size + vl_size + vr_size) * omp_threads);
     if (!mem_buff)
         goto error;
 
     a = mem_buff;
-    wr = a + a_size;
-    wi = wr + wr_size;
-    vlr = wi + wi_size;
-    vrr = vlr + vlr_size;
-    w = vrr + vrr_size;
-    vl = w + w_size;
-    vr = vl + vl_size;
+    wr = a + a_size * omp_threads;
+    wi = wr + wr_size * omp_threads;
+    vlr = wi + wi_size * omp_threads;
+    vrr = vlr + vlr_size * omp_threads;
+    w = vrr + vrr_size * omp_threads;
+    vl = w + w_size * omp_threads;
+    vr = vl + vl_size * omp_threads;
     LAPACK(@lapack_func@)(&jobvl, &jobvr, &n,
                           (void *)a, &n, (void *)wr, (void *)wi,
                           (void *)vl, &n, (void *)vr, &n,
@@ -4549,7 +4559,7 @@ init_@lapack_func@(GEEV_PARAMS_t *params, char jobvl, char jobvr, fortran_int n)
         goto error;
 
     work_count = (size_t)work_size_query;
-    mem_buff2 = malloc(work_count*sizeof(@typ@));
+    mem_buff2 = malloc(work_count*sizeof(@typ@) * omp_threads);
     if (!mem_buff2)
         goto error;
     work = mem_buff2;
@@ -4570,6 +4580,15 @@ init_@lapack_func@(GEEV_PARAMS_t *params, char jobvl, char jobvr, fortran_int n)
     params->LWORK = (fortran_int)work_count;
     params->JOBVL = jobvl;
     params->JOBVR = jobvr;
+    params->A_size_bytes = a_size;
+    params->WORK_size_bytes = work_count*sizeof(@typ@);
+    params->WR_size_bytes = wr_size;
+    params->WI_size_bytes = wi_size;
+    params->VLR_size_bytes = vlr_size;
+    params->VRR_size_bytes = vrr_size;
+    params->W_size_bytes = w_size;
+    params->VL_size_bytes = vl_size;
+    params->VR_size_bytes = vr_size;
 
     return 1;
  error:
@@ -4581,15 +4600,16 @@ init_@lapack_func@(GEEV_PARAMS_t *params, char jobvl, char jobvr, fortran_int n)
 }
 
 static inline fortran_int
-call_@lapack_func@(GEEV_PARAMS_t* params)
+call_@lapack_func@(GEEV_PARAMS_t* params, void* A, void *W, void* WR, void* WI,
+                   void* VL, void* VR, void* VLR, void* VRR, void*WORK)
 {
     fortran_int rv;
     LAPACK(@lapack_func@)(&params->JOBVL, &params->JOBVR,
-                          &params->N, params->A, &params->LDA,
-                          params->WR, params->WI,
-                          params->VLR, &params->LDVL,
-                          params->VRR, &params->LDVR,
-                          params->WORK, &params->LWORK,
+                          &params->N, A, &params->LDA,
+                          WR, WI,
+                          VLR, &params->LDVL,
+                          VRR, &params->LDVR,
+                          WORK, &params->LWORK,
                           &rv);
     return rv;
 }
@@ -4668,22 +4688,22 @@ mk_@lapack_func@_complex_eigenvectors(@complextyp@ *c,
 
 
 static inline void
-process_@lapack_func@_results(GEEV_PARAMS_t *params)
+process_@lapack_func@_results(GEEV_PARAMS_t *params, void* W, void *WR,
+                              void* WI, void* VL, void* VLR, void* VR,
+                              void* VRR)
 {
     /* REAL versions of geev need the results to be translated
      * into complex versions. This is the way to deal with imaginary
      * results. In our gufuncs we will always return complex arrays!
      */
-    mk_@TYPE@_complex_array(params->W, params->WR, params->WI, params->N);
+    mk_@TYPE@_complex_array(W, WR, WI, params->N);
 
     /* handle the eigenvectors */
     if ('V' == params->JOBVL) {
-        mk_@lapack_func@_complex_eigenvectors(params->VL, params->VLR,
-                                              params->WI, params->N);
+        mk_@lapack_func@_complex_eigenvectors(VL, VLR, WI, params->N);
     }
     if ('V' == params->JOBVR) {
-        mk_@lapack_func@_complex_eigenvectors(params->VR, params->VRR,
-                                              params->WI, params->N);
+        mk_@lapack_func@_complex_eigenvectors(VR, VRR, WI, params->N);
     }
 }
 
@@ -4702,7 +4722,8 @@ static inline int
 init_@lapack_func@(GEEV_PARAMS_t* params,
                    char jobvl,
                    char jobvr,
-                   fortran_int n)
+                   fortran_int n,
+                   fortran_int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *mem_buff2 = NULL;
@@ -4716,17 +4737,18 @@ init_@lapack_func@(GEEV_PARAMS_t* params,
     @typ@ work_size_query;
     fortran_int do_size_query = -1;
     fortran_int rv;
-    size_t total_size = a_size + w_size + vl_size + vr_size + rwork_size;
+    size_t total_size = (a_size + w_size + vl_size + vr_size
+                         + rwork_size) * omp_threads;
 
     mem_buff = malloc(total_size);
     if (!mem_buff)
         goto error;
 
     a = mem_buff;
-    w = a + a_size;
-    vl = w + w_size;
-    vr = vl + vl_size;
-    rwork = vr + vr_size;
+    w = a + a_size * omp_threads;
+    vl = w + w_size * omp_threads;
+    vr = vl + vl_size * omp_threads;
+    rwork = vr + vr_size * omp_threads;
     LAPACK(@lapack_func@)(&jobvl, &jobvr, &n,
                           (void *)a, &n, (void *)w,
                           (void *)vl, &n, (void *)vr, &n,
@@ -4737,7 +4759,7 @@ init_@lapack_func@(GEEV_PARAMS_t* params,
         goto error;
 
     work_count = (size_t) work_size_query.array[0];
-    mem_buff2 = malloc(work_count*sizeof(@ftyp@));
+    mem_buff2 = malloc(work_count*sizeof(@ftyp@) * omp_threads);
     if (!mem_buff2)
         goto error;
 
@@ -4759,6 +4781,15 @@ init_@lapack_func@(GEEV_PARAMS_t* params,
     params->LWORK = (fortran_int)work_count;
     params->JOBVL = jobvl;
     params->JOBVR = jobvr;
+    params->A_size_bytes = a_size;
+    params->WORK_size_bytes = work_count*sizeof(@typ@);
+    params->WR_size_bytes = rwork_size;
+    params->WI_size_bytes = 0;
+    params->VLR_size_bytes = 0;
+    params->VRR_size_bytes = 0;
+    params->W_size_bytes = w_size;
+    params->VL_size_bytes = vl_size;
+    params->VR_size_bytes = vr_size;
 
     return 1;
  error:
@@ -4770,24 +4801,29 @@ init_@lapack_func@(GEEV_PARAMS_t* params,
 }
 
 static inline fortran_int
-call_@lapack_func@(GEEV_PARAMS_t* params)
+call_@lapack_func@(GEEV_PARAMS_t* params, void* A, void *W, void* WR, void* WI,
+                   void* VL, void* VR, void* VLR, void* VRR, void*WORK)
 {
     fortran_int rv;
 
     LAPACK(@lapack_func@)(&params->JOBVL, &params->JOBVR,
-                          &params->N, params->A, &params->LDA,
-                          params->W,
-                          params->VL, &params->LDVL,
-                          params->VR, &params->LDVR,
-                          params->WORK, &params->LWORK,
-                          params->WR, /* actually RWORK */
+                          &params->N, A, &params->LDA,
+                          W,
+                          VL, &params->LDVL,
+                          VR, &params->LDVR,
+                          WORK, &params->LWORK,
+                          WR, /* actually RWORK */
                           &rv);
     return rv;
 }
 
 
 static inline void
-process_@lapack_func@_results(GEEV_PARAMS_t *NPY_UNUSED(params))
+process_@lapack_func@_results(GEEV_PARAMS_t *NPY_UNUSED(params),
+                              void *NPY_UNUSED(W), void *NPY_UNUSED(WR),
+                              void *NPY_UNUSED(WI), void *NPY_UNUSED(VL),
+                              void *NPY_UNUSED(VLR), void *NPY_UNUSED(VR),
+                              void *NPY_UNUSED(VRR))
 {
     /* nothing to do here, complex versions are ready to copy out */
 }
@@ -4818,7 +4854,7 @@ static inline void
 {
     ptrdiff_t outer_steps[4];
     size_t iter;
-    size_t outer_dim = *dimensions++;
+    size_t dN = *dimensions++;
     size_t op_count = 2;
     int error_occurred = get_fp_invalid_and_clear();
     GEEV_PARAMS_t geev_params;
@@ -4832,9 +4868,12 @@ static inline void
     }
     steps += op_count;
 
+    OMP_INIT_THREADS
+
     if (init_@lapack_func@(&geev_params,
                            JOBVL, JOBVR,
-                           (fortran_int)dimensions[0])) {
+                           (fortran_int)dimensions[0],
+                           nthreads)) {
         LINEARIZE_DATA_t a_in;
         LINEARIZE_DATA_t w_out;
         LINEARIZE_DATA_t vl_out;
@@ -4860,43 +4899,71 @@ static inline void
                                 steps[1], steps[0]);
         }
 
-        for (iter = 0; iter < outer_dim; ++iter) {
+        #pragma omp parallel for num_threads(nthreads)
+        for (iter = 0; iter < dN; ++iter) {
+            OMP_SET_ID
+
+            void *A = (void*)((char*)geev_params.A + geev_params.A_size_bytes * ID);
+            void *W = (void*)((char*)geev_params.W + geev_params.W_size_bytes * ID);
+            void *WR = (void*)((char*)geev_params.WR + geev_params.WR_size_bytes * ID);
+            void *WI = geev_params.WI_size_bytes ? (void*)((char*)geev_params.WI + geev_params.WI_size_bytes * ID) : NULL;
+            void *VL = (void*)((char*)geev_params.VL + geev_params.VL_size_bytes * ID);
+            void *VR = (void*)((char*)geev_params.VR + geev_params.VR_size_bytes * ID);
+            void *VLR = geev_params.VLR_size_bytes ? (void*)((char*)geev_params.VLR + geev_params.VLR_size_bytes * ID) : NULL;
+            void *VRR = geev_params.VRR_size_bytes ? (void*)((char*)geev_params.VRR + geev_params.VRR_size_bytes * ID) : NULL;
+            void *WORK = (void*)((char*)geev_params.WORK + geev_params.WORK_size_bytes * ID);
+
             int not_ok;
-            char **arg_iter = args;
+            int arg_i = 0;
             /* copy the matrix in */
-            linearize_@TYPE@_matrix(geev_params.A, *arg_iter++, &a_in);
-            not_ok = call_@lapack_func@(&geev_params);
+            linearize_@TYPE@_matrix(A, args[arg_i] + outer_steps[arg_i] * iter, &a_in);
+            arg_i++;
+            not_ok = call_@lapack_func@(&geev_params, A, W, WR, WI, VL, VR, VLR, VRR, WORK);
 
             if (!not_ok) {
-                process_@lapack_func@_results(&geev_params);
-                delinearize_@COMPLEXTYPE@_matrix(*arg_iter++,
-                                                 geev_params.W,
+                process_@lapack_func@_results(&geev_params, W, WR, WI, VL, VLR,
+                                              VR, VRR);
+                delinearize_@COMPLEXTYPE@_matrix(args[arg_i] + outer_steps[arg_i] * iter,
+                                                 W,
                                                  &w_out);
+                arg_i++;
 
                 if ('V' == geev_params.JOBVL)
-                    delinearize_@COMPLEXTYPE@_matrix(*arg_iter++,
-                                                     geev_params.VL,
+                {
+                    delinearize_@COMPLEXTYPE@_matrix(args[arg_i] + outer_steps[arg_i] * iter,
+                                                     VL,
                                                      &vl_out);
-                if ('V' == geev_params.JOBVR)
-                    delinearize_@COMPLEXTYPE@_matrix(*arg_iter++,
-                                                     geev_params.VR,
+                    arg_i++;
+                }
+                else if ('V' == geev_params.JOBVR)
+                {
+                    delinearize_@COMPLEXTYPE@_matrix(args[arg_i] + outer_steps[arg_i] * iter,
+                                                     VR,
                                                      &vr_out);
+                    arg_i++;
+                }
             } else {
                 /* geev failed */
                 error_occurred = 1;
-                nan_@COMPLEXTYPE@_matrix(*arg_iter++, &w_out);
+                nan_@COMPLEXTYPE@_matrix(args[arg_i] + outer_steps[arg_i] * iter, &w_out);
+                arg_i++;
                 if ('V' == geev_params.JOBVL)
-                    nan_@COMPLEXTYPE@_matrix(*arg_iter++, &vl_out);
-                if ('V' == geev_params.JOBVR)
-                    nan_@COMPLEXTYPE@_matrix(*arg_iter++, &vr_out);
+                {
+                    nan_@COMPLEXTYPE@_matrix(args[arg_i] + outer_steps[arg_i] * iter, &vl_out);
+                    arg_i++;
+                }
+                else if ('V' == geev_params.JOBVR)
+                {
+                    nan_@COMPLEXTYPE@_matrix(args[arg_i] + outer_steps[arg_i] * iter, &vr_out);
+                }
             }
-            update_pointers((npy_uint8**)args, outer_steps, op_count);
         }
 
         release_@lapack_func@(&geev_params);
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 static void

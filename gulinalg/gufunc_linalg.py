@@ -364,7 +364,7 @@ def cholesky(a, UPLO='L', workers=1, **kwargs):
     return out
 
 
-def eig(a, **kwargs):
+def eig(a, workers=1, **kwargs):
     """
     Compute the eigenvalues and right eigenvectors of square arrays,
     with broadcasting
@@ -374,6 +374,10 @@ def eig(a, **kwargs):
     a : (..., M, M) array
         Matrices for which the eigenvalues and right eigenvectors will
         be computed
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -383,7 +387,6 @@ def eig(a, **kwargs):
         array will be always be of complex type. When `a` is real
         the resulting eigenvalues will be real (0 imaginary part) or
         occur in conjugate pairs
-
     v : (..., M, M) array
         The normalized (unit "length") eigenvectors, such that the
         column ``v[:,i]`` is the eigenvector corresponding to the
@@ -451,10 +454,17 @@ def eig(a, **kwargs):
     True
 
     """
-    return _impl.eig(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.eig(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def eigvals(a, **kwargs):
+def eigvals(a, workers=1, **kwargs):
     """
     Compute the eigenvalues of general matrices, with broadcasting.
 
@@ -465,6 +475,10 @@ def eigvals(a, **kwargs):
     ----------
     a : (..., M, M) array
         Matrices whose eigenvalues will be computed
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -520,7 +534,14 @@ def eigvals(a, **kwargs):
     array([-1.+0.j,  1.+0.j])
 
     """
-    return _impl.eigvals(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.eigvals(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def eigh(A, UPLO='L', workers=1, **kwargs):

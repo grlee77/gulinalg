@@ -5950,6 +5950,7 @@ static void
 
 typedef struct trtri_params_struct {
     void *A;
+    fortran_int A_size_bytes;
     fortran_int N;
     fortran_int LDA;
 } TRTRI_PARAMS_t;
@@ -5960,9 +5961,10 @@ typedef struct trtri_params_struct {
    #lapack_func=strtri,dtrtri,ctrtri,ztrtri#
  */
 static inline int init_@lapack_func@(TRTRI_PARAMS_t *params,
-                                     fortran_int N)
+                                     fortran_int N, fortran_int omp_threads)
 {
-    npy_uint8 *mem_buff = malloc(N*N*sizeof(@ftyp@));
+    size_t asize1 = N*N*sizeof(@ftyp@);
+    npy_uint8 *mem_buff = malloc(asize1 * omp_threads);
     if (!mem_buff) {
         free(mem_buff);
         memset(params, 0, sizeof(*params));
@@ -5970,6 +5972,7 @@ static inline int init_@lapack_func@(TRTRI_PARAMS_t *params,
     }
 
     params->A = (void*)mem_buff;
+    params->A_size_bytes = asize1;
     params->N = N;
     params->LDA = N;
 
@@ -6000,25 +6003,32 @@ static inline void @TYPE@_inv_triangular(char uplo,
         return;
     }
 
-    if (init_@lapack_func@(&params, n)) {
+    OMP_INIT_THREADS
+
+    if (init_@lapack_func@(&params, n, nthreads)) {
         LINEARIZE_DATA_t a_in, r_out;
 
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&r_out, n, n, steps[3], steps[2]);
 
-        BEGIN_OUTER_LOOP_2
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
+
             fortran_int info;
             // gufunc shouldn't modify argument in-place, so get a copy.
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
             // Invoke LAPACK function trtri to get inverse.
             LAPACK(@lapack_func@)(&uplo, &diag, &params.N,
-                                  params.A, &params.LDA, &info);
+                                  A, &params.LDA, &info);
             if (!info) {
-                // make_symmetric_@TYPE@_matrix(params.UPLO, params.N, params.A);
-                delinearize_@TYPE@_matrix(args[1], params.A, &r_out);
+                // make_symmetric_@TYPE@_matrix(params.UPLO, params.N, A);
+                delinearize_@TYPE@_matrix(args[1] + s1 * N_, A, &r_out);
             } else {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[1], &r_out);
+                nan_@TYPE@_matrix(args[1] + s1 * N_, &r_out);
             }
         END_OUTER_LOOP
 
@@ -6026,6 +6036,7 @@ static inline void @TYPE@_inv_triangular(char uplo,
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 static void

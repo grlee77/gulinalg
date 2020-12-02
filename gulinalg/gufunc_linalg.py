@@ -200,7 +200,7 @@ def inv(a, workers=1, **kwargs):
     return out
 
 
-def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
+def inv_triangular(a, UPLO='L', unit_diagonal=False, workers=1, **kwargs):
     """
     Computes the inverse of a real triangular matrix, with broadcasting.
 
@@ -215,10 +215,13 @@ def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `a` ('L', default) or
          the upper triangular part ('U').
-
     unit_diagonal : bool, optional
          If True, the diagonal elements of 'a' are assumed to be 1 and are
          not referenced.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -269,7 +272,14 @@ def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
         else:
             gufunc = _impl.inv_lower_triangular_non_unit_diagonal
 
-    return gufunc(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = gufunc(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def cholesky(a, UPLO='L', workers=1, **kwargs):

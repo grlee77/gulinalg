@@ -111,9 +111,10 @@ class TestInverseTriangular(TestCase):
         e = np.array([[3, 0, 0, 0], [2, 1, 0, 0], [1, 0, 1, 0], [1, 1, 1, 1]])
         a = np.stack([e for _ in range(10)])
         ref = np.stack([np.identity(4) for _ in range(len(a))])
-        inva = gulinalg.inv_triangular(a)
-        res = np.stack([np.dot(a[i], inva[i]) for i in range(len(a))])
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            inva = gulinalg.inv_triangular(a, workers=workers)
+            res = np.stack([np.dot(a[i], inva[i]) for i in range(len(a))])
+            assert_allclose(res, ref)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "

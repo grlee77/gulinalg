@@ -23,9 +23,16 @@ function fails, OpenMP will be disabled,
 The user can force OpenMP to always be disabled if desired by defining the
 environment variable GULINALG_DISABLE_OPENMP.
 
-If Intel's OpenMP library should be linked to, the user should specify the
-environment variable GULINALG_INTEL_OPENMP. This will cause libiomp5 to be
-linked during compilation (instead of GCC's libgomp).
+On linux, linking against intel's OpenMP implementation instead of the GNU
+implementation can be selected by defining GULINALG_INTEL_OPENMP. This will
+cause libiomp5 and libpthread to be linked during compilation (instead of GCC's
+libgomp). This should be done, for example, on MKL-based conda environments
+where the intel-openmp package has been installed. For OpenBLAS-based conda
+environments, the GULINALG_INTEL_OPENMP variable should not be defined.
+
+If Intel's icc compiler is being used instead of gcc, the user should define
+the GULINALG_USING_ICC environment variable. Use of icc on windows systems is
+not currently supported.
 
 Build Status
 ============

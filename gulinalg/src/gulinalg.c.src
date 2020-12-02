@@ -6654,7 +6654,7 @@ static GUFUNC_DESCRIPTOR_t gufunc_descriptors [] = {
         "inner on the last dimension using 3 operands and broadcast on the"\
         " rest \n"\
         "    \"(i),(i),(i)->()\" \n",
-        2, 3, 1,
+        4, 3, 1,
         FUNC_ARRAY_NAME(innerwt),
         equal_4_types
     },

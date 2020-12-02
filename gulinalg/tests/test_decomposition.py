@@ -635,5 +635,44 @@ class TestEigh(TestCase):
         self._run_vector(a)
 
 
+class TestLDL(TestCase):
+    """Test LDL Decomposition of (Hermetian) symmetric matrices"""
+
+    def _check_ldl(self, a, l, d):
+        '''vectorial check of Mv==wv'''
+        matmul = gulinalg.matrix_multiply
+        assert_allclose(matmul(l, matmul(d, np.conj(l).swapaxes(-2, -1))), a)
+
+    def test_real(self):
+        m = 10
+        a = np.random.randn(m, m)
+        a = np.matmul(a, a.T)  # make symmetric
+        l, d = gulinalg.ldl(a)
+        self._check_ldl(a, l, d)
+
+    def test_complex(self):
+        m = 10
+        a = np.random.randn(m, m) + 1j * np.random.randn(m, m)
+        a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
+        l, d = gulinalg.ldl(a)
+        self._check_ldl(a, l, d)
+
+    def test_real_vector(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m)
+        a = np.matmul(a, a.swapaxes(-2, -1))  # make symmetric
+        for workers in [1, -1]:
+            l, d = gulinalg.ldl(a, workers=workers)
+            self._check_ldl(a, l, d)
+
+    def test_complex_vector(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m) + 1j * np.random.randn(n_batch, m, m)
+        a = np.matmul(a, np.conj(a).swapaxes(-2, -1))  # make symmetric
+        for workers in [1, -1]:
+            l, d = gulinalg.ldl(a, workers=workers)
+            self._check_ldl(a, l, d)
+
+
 if __name__ == '__main__':
     run_module_suite()

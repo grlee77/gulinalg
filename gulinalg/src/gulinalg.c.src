@@ -3680,6 +3680,10 @@ typedef struct sytr_params_struct
     fortran_int N;
     fortran_int LDA;
     fortran_int LWORK;
+    fortran_int A_size_bytes;
+    fortran_int D_size_bytes;
+    fortran_int WORK_size_bytes;
+    fortran_int IPIV_size_bytes;
     char UPLO;
 } SYTR_PARAMS_t;
 
@@ -3728,13 +3732,14 @@ static inline void
  */
 
 static inline int
-init_@lapack_func@(SYTR_PARAMS_t *params, char UPLO, fortran_int N)
+init_@lapack_func@(SYTR_PARAMS_t *params, char UPLO, fortran_int N,
+                   fortran_int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
-    const size_t a_size = N * N * sizeof(@ftyp@);
-    const size_t d_size = N * N * sizeof(@ftyp@);
-    const size_t ipiv_size = N * sizeof(fortran_int);
-    size_t work_size; /* should query for this */
+    const size_t a_size1 = N * N * sizeof(@ftyp@);
+    const size_t d_size1 = N * N * sizeof(@ftyp@);
+    const size_t ipiv_size1 = N * sizeof(fortran_int);
+    size_t work_size1; /* should query for this */
     {
         /* compute optimal parameters */
         @ftyp@ query_work_size;
@@ -3748,9 +3753,13 @@ init_@lapack_func@(SYTR_PARAMS_t *params, char UPLO, fortran_int N)
         if (info != 0)
             goto error;
 
-        work_size = (size_t)*(@fbasetyp@*)&query_work_size * sizeof(@ftyp@);
+        work_size1 = (size_t)*(@fbasetyp@*)&query_work_size * sizeof(@ftyp@);
     }
 
+    size_t a_size = a_size1 * omp_threads;
+    size_t d_size = d_size1 * omp_threads;
+    size_t ipiv_size = ipiv_size1 * omp_threads;
+    size_t work_size = work_size1 * omp_threads;
     mem_buff = malloc(a_size + d_size + ipiv_size + work_size);
 
     if (mem_buff == NULL)
@@ -3764,6 +3773,10 @@ init_@lapack_func@(SYTR_PARAMS_t *params, char UPLO, fortran_int N)
     params->LDA = N;
     params->LWORK = work_size;
     params->UPLO = UPLO;
+    params->A_size_bytes = a_size1;
+    params->D_size_bytes = d_size1;
+    params->IPIV_size_bytes = ipiv_size1;
+    params->WORK_size_bytes = work_size1;
 
     return 1;
  error:
@@ -3780,11 +3793,11 @@ release_@lapack_func@(SYTR_PARAMS_t *params)
 }
 
 static inline fortran_int
-call_@lapack_func@(SYTR_PARAMS_t *params)
+call_@lapack_func@(SYTR_PARAMS_t *params, void* A, void* WORK, fortran_int* IPIV)
 {
     fortran_int rv;
-    LAPACK(@lapack_func@)(&params->UPLO, &params->N, params->A,
-                          &params->LDA, params->IPIV, params->WORK, &params->LWORK, &rv);
+    LAPACK(@lapack_func@)(&params->UPLO, &params->N, A,
+                          &params->LDA, IPIV, WORK, &params->LWORK, &rv);
 
     return rv;
 }
@@ -3797,23 +3810,33 @@ static void
     int error_occurred = get_fp_invalid_and_clear();
     fortran_int n;
     INIT_OUTER_LOOP_3
+    OMP_INIT_THREADS
 
     n = (fortran_int) dimensions[0];
-    if (init_@lapack_func@(&params, 'L', n))
+    if (init_@lapack_func@(&params, 'L', n, nthreads))
     {
         LINEARIZE_DATA_t a_in, d_out, l_out;
         init_linearize_data(&a_in, n, n, steps[1], steps[0]);
         init_linearize_data(&l_out, n, n, steps[3], steps[2]);
         init_linearize_data(&d_out, n, n, steps[5], steps[4]);
-        BEGIN_OUTER_LOOP_3
+        //BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
             int not_ok;
-            linearize_@TYPE@_matrix(params.A, args[0], &a_in);
-            not_ok = call_@lapack_func@(&params);
+
+            void *A = (void*)((char*)params.A + params.A_size_bytes * ID);
+            void *D = (void*)((char*)params.D + params.D_size_bytes * ID);
+            fortran_int *IPIV = (fortran_int*)((char*)params.IPIV + params.IPIV_size_bytes * ID);
+            void *WORK = (void*)((char*)params.WORK + params.WORK_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + s0 * N_, &a_in);
+            not_ok = call_@lapack_func@(&params, A, WORK, IPIV);
             if (!not_ok)
             {
-                triu_@TYPE@_matrix(params.A, n);
-                @ftyp@ *a = (@ftyp@*) params.A;
-                @ftyp@ *d = (@ftyp@*) params.D;
+                triu_@TYPE@_matrix(A, n);
+                @ftyp@ *a = (@ftyp@*) A;
+                @ftyp@ *d = (@ftyp@*) D;
 
                 /* set d to diag(A) and set diag(A) to 1.0 */
                 memset(d, 0, n*n*sizeof(@ftyp@));
@@ -3831,9 +3854,9 @@ static void
                 int j;
                 for (i = 1, j = n - 1; i < n+1; i++, j--)
                 {
-                    fortran_int ipiv = params.IPIV[j];
-                    a = (@ftyp@*) params.A + (n+1)*j;
-                    d = (@ftyp@*) params.D + (n+1)*j;
+                    fortran_int ipiv = IPIV[j];
+                    a = (@ftyp@*) A + (n+1)*j;
+                    d = (@ftyp@*) D + (n+1)*j;
                     if (!block) {
                         if (ipiv < 0)
                         {
@@ -3854,20 +3877,21 @@ static void
                         block = 0;
                     }
                 }
-                delinearize_@TYPE@_matrix(args[1], params.A, &l_out);
-                delinearize_@TYPE@_matrix(args[2], params.D, &d_out);
+                delinearize_@TYPE@_matrix(args[1] + s1 * N_, A, &l_out);
+                delinearize_@TYPE@_matrix(args[2] + s2 * N_, D, &d_out);
             }
             else
             {
                 error_occurred = 1;
-                nan_@TYPE@_matrix(args[1], &l_out);
-                nan_@TYPE@_matrix(args[2], &d_out);
+                nan_@TYPE@_matrix(args[1] + s1 * N_, &l_out);
+                nan_@TYPE@_matrix(args[2] + s2 * N_, &d_out);
             }
         END_OUTER_LOOP
         release_@lapack_func@(&params);
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 
 static void

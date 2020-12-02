@@ -1337,7 +1337,7 @@ def poinv(A, UPLO='L', workers=1, **kwargs):
     return out
 
 
-def ldl(A, **kwargs):
+def ldl(A, workers=1, **kwargs):
     """
     LDL decomposition.
 
@@ -1353,6 +1353,10 @@ def ldl(A, **kwargs):
     ----------
     a : (..., M, M) array_like
         Hermitian (symmetric if all elements are real) input matrix.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -1400,4 +1404,11 @@ def ldl(A, **kwargs):
            Baltimore, MD, Johns Hopkins University Press, 2013, pg. 192
     """
 
-    return _impl.ldl(A, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.ldl(A, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out

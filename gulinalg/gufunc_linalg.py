@@ -30,7 +30,7 @@ from . import _impl
 from .gufunc_general import _check_workers, matrix_multiply
 
 
-def det(a, **kwargs):
+def det(a, workers=1, **kwargs):
     """
     Compute the determinant of arrays, with broadcasting.
 
@@ -38,6 +38,10 @@ def det(a, **kwargs):
     ----------
     a : (NDIMS, M, M) array
         Input array. Its inner dimensions must be those of a square 2-D array.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -72,10 +76,17 @@ def det(a, **kwargs):
     True
 
     """
-    return _impl.det(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.det(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def slogdet(a, **kwargs):
+def slogdet(a, workers=1, **kwargs):
     """
     Compute the sign and (natural) logarithm of the determinant of an array,
     with broadcasting.
@@ -89,6 +100,10 @@ def slogdet(a, **kwargs):
     ----------
     a : (..., M, M) array
         Input array. Its inner dimensions must be those of a square 2-D array.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -142,8 +157,14 @@ def slogdet(a, **kwargs):
     True
 
     """
-    return _impl.slogdet(a, **kwargs)
-
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.slogdet(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 def inv(a, workers=1, **kwargs):
     """

@@ -2842,9 +2842,9 @@ static void
                void *NPY_UNUSED(func))
 {
     fortran_int m;
-    npy_uint8 *tmp_buff = NULL;
-    size_t matrix_size;
-    size_t pivot_size;
+    npy_uint8 *tmp_buff = NULL, *pivot_buff = NULL;
+    size_t matrix_size1, matrix_size;
+    size_t pivot_size1, pivot_size;
     /* notes:
      *   matrix will need to be copied always, as factorization in lapack is
      *          made inplace
@@ -2855,9 +2855,14 @@ static void
      */
     INIT_OUTER_LOOP_3
     m = (fortran_int) dimensions[0];
-    matrix_size = m*m*sizeof(@typ@);
-    pivot_size = m*sizeof(fortran_int);
+    OMP_INIT_THREADS
+
+    matrix_size1 = m*m*sizeof(@typ@);
+    pivot_size1 = m*sizeof(fortran_int);
+    matrix_size = matrix_size1 * nthreads;
+    pivot_size = pivot_size1 * nthreads;
     tmp_buff = (npy_uint8 *)malloc(matrix_size + pivot_size);
+    pivot_buff = tmp_buff + matrix_size;
 
     if (tmp_buff)
     {
@@ -2866,17 +2871,23 @@ static void
         init_linearize_data(&lin_data, m, m,
                             (ptrdiff_t)steps[1],
                             (ptrdiff_t)steps[0]);
-        BEGIN_OUTER_LOOP_3
-            linearize_@TYPE@_matrix(tmp_buff, args[0], &lin_data);
+        //BEGIN_OUTER_LOOP_3
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
+            npy_uint8* tmp_buff1 = tmp_buff + matrix_size1 * ID;
+            npy_uint8* pivot_buff1 = pivot_buff + pivot_size1 * ID;
+            linearize_@TYPE@_matrix(tmp_buff1, args[0] + s0 * N_, &lin_data);
             @TYPE@_slogdet_single_element(m,
-                                          (void*)tmp_buff,
-                                          (fortran_int*)(tmp_buff+matrix_size),
-                                          (@typ@*)args[1],
-                                          (@basetyp@*)args[2]);
+                                          (void*)tmp_buff1,
+                                          (fortran_int*)pivot_buff1,
+                                          (@typ@*)(args[1] + s1 * N_),
+                                          (@basetyp@*)(args[2] + s2 * N_));
         END_OUTER_LOOP
 
         free(tmp_buff);
     }
+    RESTORE_OMP_THREADS
 }
 
 static void
@@ -2886,9 +2897,9 @@ static void
            void *NPY_UNUSED(func))
 {
     fortran_int m;
-    npy_uint8 *tmp_buff;
-    size_t matrix_size;
-    size_t pivot_size;
+    npy_uint8 *tmp_buff=NULL, *pivot_buff=NULL;
+    size_t matrix_size1, matrix_size;
+    size_t pivot_size1, pivot_size;
     /* notes:
      *   matrix will need to be copied always, as factorization in lapack is
      *       made inplace
@@ -2899,9 +2910,14 @@ static void
      */
     INIT_OUTER_LOOP_2
     m = (fortran_int) dimensions[0];
-    matrix_size = m*m*sizeof(@typ@);
-    pivot_size = m*sizeof(fortran_int);
+    OMP_INIT_THREADS
+
+    matrix_size1 = m*m*sizeof(@typ@);
+    pivot_size1 = m*sizeof(fortran_int);
+    matrix_size = matrix_size1 * nthreads;
+    pivot_size = pivot_size1 * nthreads;
     tmp_buff = (npy_uint8 *)malloc(matrix_size + pivot_size);
+    pivot_buff = tmp_buff + matrix_size;
 
     if (tmp_buff)
     {
@@ -2913,14 +2929,19 @@ static void
                             (ptrdiff_t)steps[1],
                             (ptrdiff_t)steps[0]);
 
-        BEGIN_OUTER_LOOP_2
-            linearize_@TYPE@_matrix(tmp_buff, args[0], &lin_data);
+        //BEGIN_OUTER_LOOP_2
+        #pragma omp parallel for num_threads(nthreads)
+        for (N_ = 0; N_ < dN; N_++) {
+            OMP_SET_ID
+            npy_uint8* tmp_buff1 = tmp_buff + matrix_size1 * ID;
+            npy_uint8* pivot_buff1 = pivot_buff + pivot_size1 * ID;
+            linearize_@TYPE@_matrix(tmp_buff1, args[0] + s0 * N_, &lin_data);
             @TYPE@_slogdet_single_element(m,
-                                          (void*)tmp_buff,
-                                          (fortran_int*)(tmp_buff+matrix_size),
+                                          (void*)tmp_buff1,
+                                          (fortran_int*)pivot_buff1,
                                           &sign,
                                           &logdet);
-            *(@typ@ *)args[1] = @TYPE@_det_from_slogdet(sign, logdet);
+            *(@typ@ *)(args[1] + s1 * N_) = @TYPE@_det_from_slogdet(sign, logdet);
         END_OUTER_LOOP
 
         free(tmp_buff);

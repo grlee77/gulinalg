@@ -143,7 +143,7 @@ def dotc1d(a, b, **kwargs):
     return _impl.dotc1d(a, b, **kwargs)
 
 
-def innerwt(a, b, c, **kwargs):
+def innerwt(a, b, c, workers=1, **kwargs):
     """
     Compute the weighted (i.e. triple) inner product, with
     broadcasting.
@@ -152,6 +152,10 @@ def innerwt(a, b, c, **kwargs):
     ----------
     a, b, c : (..., N) array
         Input arrays
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -182,7 +186,14 @@ def innerwt(a, b, c, **kwargs):
     array([ 3.25, 39.25])
 
     """
-    return _impl.innerwt(a, b, c, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out =  _impl.innerwt(a, b, c, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def matrix_multiply(a, b, workers=1, **kwargs):

@@ -19,6 +19,41 @@ K = 100
 n_batch = 8
 
 
+class TestInnerwt(TestCase):
+
+    def test_real(self):
+        a = np.random.randn(N)
+        b = np.random.randn(N)
+        c = np.random.randn(N)
+        res = gulinalg.innerwt(a, b, c)
+        ref = np.sum(a * b * c)
+        assert_allclose(res, ref)
+
+    def test_complex(self):
+        a = np.random.randn(N) + 1j * np.random.randn(N)
+        b = np.random.randn(N) + 1j * np.random.randn(N)
+        c = np.random.randn(N) + 1j * np.random.randn(N)
+        res = gulinalg.innerwt(a, b, c)
+        ref = np.sum(a * b * c)
+        assert_allclose(res, ref)
+
+    def test_real_vector(self):
+        a = np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N)
+        c = np.random.randn(n_batch, N)
+        res = gulinalg.innerwt(a, b, c)
+        ref = np.sum(a * b * c, axis=-1)
+        assert_allclose(res, ref)
+
+    def test_complex_vector(self):
+        a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        c = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        res = gulinalg.innerwt(a, b, c)
+        ref = np.sum(a * b * c, axis=-1)
+        assert_allclose(res, ref)
+
+
 class TestMatvecMultiplyNoCopy(TestCase):
     """
     Tests the cases that code can handle without copy-rearranging of any of

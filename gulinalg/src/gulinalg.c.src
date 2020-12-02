@@ -1658,8 +1658,16 @@ static void
     npy_intp di = dimensions[0];
     npy_intp i;
     npy_intp is1=steps[0], is2=steps[1], is3=steps[2];
-    BEGIN_OUTER_LOOP_4
-        char *ip1=args[0], *ip2=args[1], *ip3=args[2], *op=args[3];
+    OMP_INIT_THREADS
+    //BEGIN_OUTER_LOOP_4
+    #pragma omp parallel for num_threads(nthreads)
+    for (N_ = 0; N_ < dN; N_++) {
+        OMP_SET_ID
+
+        char *ip1 = args[0] + s0 * N_;
+        char *ip2 = args[1] + s1 * N_;
+        char *ip3 = args[2] + s2 * N_;
+        char *op = args[3] + s3 * N_;
         @typ@ sum = @zero@;
         for (i = 0; i < di; i++) {
             @typ@ prod = @mul@(@mul@(*(@typ@*)ip1, *(@typ@*)ip2),*(@typ@*)ip3);
@@ -1670,6 +1678,7 @@ static void
         }
         *(@typ@ *)op = sum;
     END_OUTER_LOOP
+    RESTORE_OMP_THREADS
 }
 
 /**end repeat**/

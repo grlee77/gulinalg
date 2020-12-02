@@ -523,7 +523,7 @@ def eigvals(a, **kwargs):
     return _impl.eigvals(a, **kwargs)
 
 
-def eigh(A, UPLO='L', **kwargs):
+def eigh(A, UPLO='L', workers=1, **kwargs):
     """
     Computes the eigenvalues and eigenvectors for the square matrices
     in the inner dimensions of A, being those matrices
@@ -538,6 +538,10 @@ def eigh(A, UPLO='L', **kwargs):
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `A` ('L', default) or
          the upper triangular part ('U').
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -599,10 +603,18 @@ def eigh(A, UPLO='L', **kwargs):
     else:
         gufunc = _impl.eigh_up
 
-    return gufunc(A, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(A, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def eigvalsh(A, UPLO='L', **kwargs):
+def eigvalsh(A, UPLO='L', workers=1, **kwargs):
     """
     Computes the eigenvalues for the square matrices in the inner
     dimensions of A, being those matrices symmetric/hermitian.
@@ -616,6 +628,10 @@ def eigvalsh(A, UPLO='L', **kwargs):
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `A` ('L', default) or
          the upper triangular part ('U').
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -663,7 +679,15 @@ def eigvalsh(A, UPLO='L', **kwargs):
     else:
         gufunc = _impl.eigvalsh_up
 
-    return gufunc(A,**kwargs)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(A, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def solve(A, B, workers=1, **kwargs):

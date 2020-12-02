@@ -2933,6 +2933,11 @@ typedef struct eigh_params_struct {
     fortran_int LWORK;
     fortran_int LRWORK;
     fortran_int LIWORK;
+    fortran_int W_size_bytes;
+    fortran_int A_size_bytes;
+    fortran_int WORK_size_bytes;
+    fortran_int RWORK_size_bytes;
+    fortran_int IWORK_size_bytes;
     char JOBZ;
     char UPLO;
 } EIGH_PARAMS_t;
@@ -2950,7 +2955,7 @@ typedef struct eigh_params_struct {
  */
 static inline int
 init_@lapack_func@(EIGH_PARAMS_t* params, char JOBZ, char UPLO,
-                   fortran_int N)
+                   fortran_int N, fortran_int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *mem_buff2 = NULL;
@@ -2960,14 +2965,17 @@ init_@lapack_func@(EIGH_PARAMS_t* params, char JOBZ, char UPLO,
     fortran_int liwork = -1;
     fortran_int info;
     npy_uint8 *a, *w, *work, *iwork;
-    size_t alloc_size = N*(N+1)*sizeof(@typ@);
+    size_t asize1, wsize1;
+    asize1 = N*N*sizeof(@typ@);
+    wsize1 = N*sizeof(@typ@);
+    size_t alloc_size = asize1 * wsize1 * omp_threads;
 
     mem_buff = malloc(alloc_size);
 
     if (!mem_buff)
         goto error;
     a = mem_buff;
-    w = mem_buff + N*N*sizeof(@typ@);
+    w = mem_buff + asize1 * omp_threads;
     LAPACK(@lapack_func@)(&JOBZ, &UPLO, &N,
                           (@ftyp@*)a, &N, (@ftyp@*)w,
                           &query_work_size, &lwork,
@@ -2980,12 +2988,12 @@ init_@lapack_func@(EIGH_PARAMS_t* params, char JOBZ, char UPLO,
     work = mem_buff;
     lwork = (fortran_int)query_work_size;
     liwork = query_iwork_size;
-    mem_buff2 = malloc(lwork*sizeof(@typ@) + liwork*sizeof(fortran_int));
+    mem_buff2 = malloc(lwork*sizeof(@typ@)*omp_threads + liwork*sizeof(fortran_int)*omp_threads);
     if (!mem_buff2)
         goto error;
 
     work = mem_buff2;
-    iwork = mem_buff2 + lwork*sizeof(@typ@);
+    iwork = mem_buff2 + lwork*sizeof(@typ@)*omp_threads;
 
     params->A = a;
     params->W = w;
@@ -2998,6 +3006,11 @@ init_@lapack_func@(EIGH_PARAMS_t* params, char JOBZ, char UPLO,
     params->LIWORK = liwork;
     params->JOBZ = JOBZ;
     params->UPLO = UPLO;
+    params->A_size_bytes = asize1;
+    params->W_size_bytes = wsize1;
+    params->WORK_size_bytes = lwork * sizeof(@typ@);
+    params->RWORK_size_bytes = 0;
+    params->IWORK_size_bytes = liwork * sizeof(fortran_int);
 
     return 1;
 
@@ -3011,13 +3024,13 @@ init_@lapack_func@(EIGH_PARAMS_t* params, char JOBZ, char UPLO,
 }
 
 static inline fortran_int
-call_@lapack_func@(EIGH_PARAMS_t *params)
+call_@lapack_func@(EIGH_PARAMS_t *params, void *A, void *W, void *WORK, void *RWORK, void *IWORK)
 {
     fortran_int rv;
     LAPACK(@lapack_func@)(&params->JOBZ, &params->UPLO, &params->N,
-                          params->A, &params->N, params->W,
-                          params->WORK, &params->LWORK,
-                          params->IWORK, &params->LIWORK,
+                          A, &params->N, W,
+                          WORK, &params->LWORK,
+                          IWORK, &params->LIWORK,
                           &rv);
     return rv;
 }
@@ -3040,7 +3053,8 @@ static inline int
 init_@lapack_func@(EIGH_PARAMS_t *params,
                    char JOBZ,
                    char UPLO,
-                   fortran_int N)
+                   fortran_int N,
+                   fortran_int omp_threads)
 {
     npy_uint8 *mem_buff = NULL;
     npy_uint8 *mem_buff2 = NULL;
@@ -3052,12 +3066,15 @@ init_@lapack_func@(EIGH_PARAMS_t *params,
     fortran_int liwork = -1;
     npy_uint8 *a, *w, *work, *rwork, *iwork;
     fortran_int info;
+    size_t asize1, wsize1;
+    asize1 = N*N*sizeof(@typ@);
+    wsize1 = N*sizeof(@typ@);
 
-    mem_buff = malloc(N*N*sizeof(@typ@)+N*sizeof(@basetyp@));
+    mem_buff = malloc(asize1 * omp_threads + wsize1*omp_threads);
     if (!mem_buff)
         goto error;
     a = mem_buff;
-    w = mem_buff+N*N*sizeof(@typ@);
+    w = mem_buff + asize1 * omp_threads;
 
     LAPACK(@lapack_func@)(&JOBZ, &UPLO, &N,
                           (@ftyp@*)a, &N, (@fbasetyp@*)w,
@@ -3072,14 +3089,14 @@ init_@lapack_func@(EIGH_PARAMS_t *params,
     lrwork = (fortran_int)query_rwork_size;
     liwork = query_iwork_size;
 
-    mem_buff2 = malloc(lwork*sizeof(@typ@) +
-                       lrwork*sizeof(@basetyp@) +
-                       liwork*sizeof(fortran_int));
+    mem_buff2 = malloc(lwork*sizeof(@typ@) * omp_threads +
+                       lrwork*sizeof(@basetyp@) * omp_threads +
+                       liwork*sizeof(fortran_int) * omp_threads);
     if (!mem_buff2)
         goto error;
     work = mem_buff2;
-    rwork = work + lwork*sizeof(@typ@);
-    iwork = rwork + lrwork*sizeof(@basetyp@);
+    rwork = work + lwork*sizeof(@typ@) * omp_threads;
+    iwork = rwork + lrwork*sizeof(@basetyp@) * omp_threads;
 
     params->A = a;
     params->W = w;
@@ -3092,7 +3109,11 @@ init_@lapack_func@(EIGH_PARAMS_t *params,
     params->LIWORK = liwork;
     params->JOBZ = JOBZ;
     params->UPLO = UPLO;
-
+    params->A_size_bytes = asize1;
+    params->W_size_bytes = wsize1;
+    params->WORK_size_bytes = lwork * sizeof(@typ@);
+    params->RWORK_size_bytes = lrwork * sizeof(@basetyp@);
+    params->IWORK_size_bytes = liwork * sizeof(fortran_int);
     return 1;
 
     /* something failed */
@@ -3105,14 +3126,14 @@ error:
 }
 
 static inline fortran_int
-call_@lapack_func@(EIGH_PARAMS_t *params)
+call_@lapack_func@(EIGH_PARAMS_t *params, void *A, void *W, void *WORK, void *RWORK, void *IWORK)
 {
     fortran_int rv;
     LAPACK(@lapack_func@)(&params->JOBZ, &params->UPLO, &params->N,
-                          params->A, &params->N, params->W,
-                          params->WORK, &params->LWORK,
-                          params->RWORK, &params->LRWORK,
-                          params->IWORK, &params->LIWORK,
+                          A, &params->N, W,
+                          WORK, &params->LWORK,
+                          RWORK, &params->LRWORK,
+                          IWORK, &params->LIWORK,
                           &rv);
     return rv;
 }
@@ -3153,7 +3174,7 @@ static inline void
 {
     ptrdiff_t outer_steps[3];
     size_t iter;
-    size_t outer_dim = *dimensions++;
+    size_t dN = *dimensions++;
     size_t op_count = (JOBZ=='N')?2:3;
     EIGH_PARAMS_t eigh_params;
     int error_occurred = get_fp_invalid_and_clear();
@@ -3163,10 +3184,13 @@ static inline void
     }
     steps += op_count;
 
+    OMP_INIT_THREADS
+
     if (init_@lapack_func@(&eigh_params,
                            JOBZ,
                            UPLO,
-                           (fortran_int)dimensions[0])) {
+                           (fortran_int)dimensions[0],
+                           nthreads)) {
         LINEARIZE_DATA_t matrix_in_ld;
         LINEARIZE_DATA_t eigenvectors_out_ld;
         LINEARIZE_DATA_t eigenvalues_out_ld;
@@ -3183,37 +3207,51 @@ static inline void
                                 steps[4], steps[3]);
         }
 
-        for (iter = 0; iter < outer_dim; ++iter) {
+        #pragma omp parallel for num_threads(nthreads)
+        for (iter = 0; iter < dN; ++iter) {
+            OMP_SET_ID
+
             int not_ok;
             /* copy the matrix in */
-            linearize_@TYPE@_matrix(eigh_params.A, args[0], &matrix_in_ld);
-            not_ok = call_@lapack_func@(&eigh_params);
+            void *A = (void*)((char*)eigh_params.A + eigh_params.A_size_bytes * ID);
+
+            void *W = (void*)((char*)eigh_params.W + eigh_params.W_size_bytes * ID);
+            void *WORK = (void*)((char*)eigh_params.WORK + eigh_params.WORK_size_bytes * ID);
+            void *RWORK;
+            if (eigh_params.RWORK_size_bytes == 0)
+                RWORK = NULL;
+            else
+                RWORK = (void*)((char*)eigh_params.RWORK + eigh_params.RWORK_size_bytes * ID);
+            void *IWORK = (void*)((char*)eigh_params.IWORK + eigh_params.IWORK_size_bytes * ID);
+
+            linearize_@TYPE@_matrix(A, args[0] + outer_steps[0] * iter, &matrix_in_ld);
+            not_ok = call_@lapack_func@(&eigh_params, A, W, WORK, RWORK, IWORK);
             if (!not_ok) {
                 /* lapack ok, copy result out */
-                delinearize_@BASETYPE@_matrix(args[1],
-                                              eigh_params.W,
+                delinearize_@BASETYPE@_matrix(args[1] + outer_steps[1] * iter,
+                                              W,
                                               &eigenvalues_out_ld);
 
                 if ('V' == eigh_params.JOBZ) {
-                    delinearize_@TYPE@_matrix(args[2],
-                                              eigh_params.A,
+                    delinearize_@TYPE@_matrix(args[2] + outer_steps[2] * iter,
+                                              A,
                                               &eigenvectors_out_ld);
                 }
             } else {
                 /* lapack fail, set result to nan */
                 error_occurred = 1;
-                nan_@BASETYPE@_matrix(args[1], &eigenvalues_out_ld);
+                nan_@BASETYPE@_matrix(args[1] + outer_steps[1] * iter, &eigenvalues_out_ld);
                 if ('V' == eigh_params.JOBZ) {
-                    nan_@TYPE@_matrix(args[2], &eigenvectors_out_ld);
+                    nan_@TYPE@_matrix(args[2] + outer_steps[2] * iter, &eigenvectors_out_ld);
                 }
             }
-            update_pointers((npy_uint8**)args, outer_steps, op_count);
         }
 
         release_@lapack_func@(&eigh_params);
     }
 
     set_fp_invalid_or_clear(error_occurred);
+    RESTORE_OMP_THREADS
 }
 /**end repeat**/
 

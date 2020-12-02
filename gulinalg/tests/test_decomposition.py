@@ -505,8 +505,63 @@ class TestCholesky(TestCase):
             assert_allclose(np.matmul(L, np.conj(L).swapaxes(-2, -1)), a)
 
 
-class TestEigh(TestCase):
+class TestEig(TestCase):
     """Test Eigenvalue Decomposition"""
+
+    def _check_eigen(self, A, w, v):
+        '''vectorial check of Mv==wv'''
+        lhs = gulinalg.matrix_multiply(A, v)
+        rhs = w*v
+        assert_allclose(lhs, rhs)
+
+    def _run_single(self, a):
+        w, v = gulinalg.eig(a)
+        w_2 = gulinalg.eigvals(a)
+        assert_allclose(w, w_2)
+        self._check_eigen(a, w, v)
+
+    def _run_vector(self, a):
+        for workers in [1, -1]:
+            w, v = gulinalg.eig(a, workers=workers)
+            w_2 = gulinalg.eigvals(a, workers=workers)
+            assert_allclose(w, w_2)
+            self._check_eigen(a, w[:, np.newaxis, :], v)
+
+    def test_real(self):
+        m = 10
+        a = np.random.randn(m, m)
+        self._run_single(a)
+
+    def test_complex(self):
+        m = 10
+        a = np.random.randn(m, m) + 1j * np.random.randn(m, m)
+        self._run_single(a)
+
+    def test_real_vector(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m)
+        self._run_vector(a)
+
+    def test_complex_vector(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m)
+        a = a + 1j * np.random.randn(n_batch, m, m)
+        self._run_vector(a)
+
+    def test_real_vector_f(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m)
+        a = np.asfortranarray(a)
+        self._run_vector(a)
+
+    def test_real_vector_noncontig(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m, 2)[..., 0]
+        self._run_vector(a)
+
+
+class TestEigh(TestCase):
+    """Test Eigenvalue Decomposition of (Hermetian) symmetric matrices"""
 
     def _check_eigen(self, A, w, v):
         '''vectorial check of Mv==wv'''
@@ -526,15 +581,18 @@ class TestEigh(TestCase):
             self._check_eigen(a, w, v)
 
     def _run_vector(self, a):
-        for uplo in ['L', 'U']:
-            if uplo == 'L':
-                w, v = gulinalg.eigh(np.tril(a), UPLO='L')
-                w_2 = gulinalg.eigvalsh(np.tril(a), UPLO='L')
-            else:
-                w, v = gulinalg.eigh(np.triu(a), UPLO='U')
-                w_2 = gulinalg.eigvalsh(np.triu(a), UPLO='U')
-            assert_allclose(w, w_2)
-            self._check_eigen(a, w[:, np.newaxis, :], v)
+        for workers in [1, -1]:
+            for uplo in ['L', 'U']:
+                if uplo == 'L':
+                    w, v = gulinalg.eigh(np.tril(a), UPLO='L', workers=workers)
+                    w_2 = gulinalg.eigvalsh(np.tril(a), UPLO='L',
+                                            workers=workers)
+                else:
+                    w, v = gulinalg.eigh(np.triu(a), UPLO='U', workers=workers)
+                    w_2 = gulinalg.eigvalsh(np.triu(a), UPLO='U',
+                                            workers=workers)
+                assert_allclose(w, w_2)
+                self._check_eigen(a, w[:, np.newaxis, :], v)
 
     def test_real(self):
         m = 10

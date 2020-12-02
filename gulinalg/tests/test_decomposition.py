@@ -512,7 +512,7 @@ class TestEig(TestCase):
         '''vectorial check of Mv==wv'''
         lhs = gulinalg.matrix_multiply(A, v)
         rhs = w*v
-        assert_allclose(lhs, rhs)
+        assert_allclose(lhs, rhs, rtol=1e-6)
 
     def _run_single(self, a):
         w, v = gulinalg.eig(a)
@@ -529,34 +529,40 @@ class TestEig(TestCase):
 
     def test_real(self):
         m = 10
-        a = np.random.randn(m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m)
         self._run_single(a)
 
     def test_complex(self):
         m = 10
-        a = np.random.randn(m, m) + 1j * np.random.randn(m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m) + 1j * rstate.randn(m, m)
         self._run_single(a)
 
     def test_real_vector(self):
         m = 10
-        a = np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
         self._run_vector(a)
 
     def test_complex_vector(self):
         m = 10
-        a = np.random.randn(n_batch, m, m)
-        a = a + 1j * np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        a = a + 1j * rstate.randn(n_batch, m, m)
         self._run_vector(a)
 
     def test_real_vector_f(self):
         m = 10
-        a = np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
         a = np.asfortranarray(a)
         self._run_vector(a)
 
     def test_real_vector_noncontig(self):
         m = 10
-        a = np.random.randn(n_batch, m, m, 2)[..., 0]
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m, 2)[..., 0]
         self._run_vector(a)
 
 
@@ -567,7 +573,7 @@ class TestEigh(TestCase):
         '''vectorial check of Mv==wv'''
         lhs = gulinalg.matrix_multiply(A, v)
         rhs = w*v
-        assert_allclose(lhs, rhs)
+        assert_allclose(lhs, rhs, rtol=1e-6)
 
     def _run_single(self, a):
         for uplo in ['L', 'U']:
@@ -596,26 +602,30 @@ class TestEigh(TestCase):
 
     def test_real(self):
         m = 10
-        a = np.random.randn(m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m)
         a = np.dot(a, a.T)  # make Hermetian symmetric
         self._run_single(a)
 
     def test_complex(self):
         m = 10
-        a = np.random.randn(m, m) + 1j * np.random.randn(m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m) + 1j * rstate.randn(m, m)
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
         self._run_single(a)
 
     def test_real_vector(self):
         m = 10
-        a = np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
         a = gulinalg.matrix_multiply(a, a.swapaxes(-2, -1))  # make symmetric
         self._run_vector(a)
 
     def test_complex_vector(self):
         m = 10
-        a = np.random.randn(n_batch, m, m)
-        a = a + 1j * np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        a = a + 1j * rstate.randn(n_batch, m, m)
         a = gulinalg.matrix_multiply(
             a, np.conj(a).swapaxes(-2, -1)  # make symmetric
         )
@@ -623,14 +633,16 @@ class TestEigh(TestCase):
 
     def test_real_vector_f(self):
         m = 10
-        a = np.random.randn(n_batch, m, m)
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
         a = gulinalg.matrix_multiply(a, a.swapaxes(-2, -1))  # make symmetric
         a = np.asfortranarray(a)
         self._run_vector(a)
 
     def test_real_vector_noncontig(self):
         m = 10
-        a = np.random.randn(n_batch, m, m, 2)[..., 0]
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m, 2)[..., 0]
         a = gulinalg.matrix_multiply(a, a.swapaxes(-2, -1))  # make symmetric
         self._run_vector(a)
 

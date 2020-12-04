@@ -19,6 +19,54 @@ K = 100
 n_batch = 8
 
 
+class TestInner1d(TestCase):
+
+    def test_real(self):
+        a = np.random.randn(N)
+        b = np.random.randn(N)
+        res = gulinalg.inner1d(a, b)
+        ref = np.sum(a * b)
+        assert_allclose(res, ref)
+
+    def test_complex(self):
+        a = np.random.randn(N) + 1j * np.random.randn(N)
+        b = np.random.randn(N) + 1j * np.random.randn(N)
+        res = gulinalg.inner1d(a, b)
+        ref = np.sum(a * b)
+        assert_allclose(res, ref)
+
+    def test_real_vector(self):
+        a = np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N)
+        res = gulinalg.inner1d(a, b)
+        ref = np.sum(a * b, axis=-1)
+        assert_allclose(res, ref)
+
+    def test_complex_vector(self):
+        a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        res = gulinalg.inner1d(a, b)
+        ref = np.sum(a * b, axis=-1)
+        assert_allclose(res, ref)
+
+
+class TestDotc1d(TestCase):
+
+    def test_complex(self):
+        a = np.random.randn(N) + 1j * np.random.randn(N)
+        b = np.random.randn(N) + 1j * np.random.randn(N)
+        res = gulinalg.dotc1d(a, b)
+        ref = np.sum(np.conj(a) * b)
+        assert_allclose(res, ref)
+
+    def test_complex_vector(self):
+        a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        res = gulinalg.dotc1d(a, b)
+        ref = np.sum(np.conj(a) * b, axis=-1)
+        assert_allclose(res, ref)
+
+
 class TestInnerwt(TestCase):
 
     def test_real(self):

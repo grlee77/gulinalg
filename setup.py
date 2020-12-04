@@ -109,7 +109,6 @@ if "msc" not in platform.python_compiler().lower():
     # On windows, the MSVC-specific __pragma is used instead
     extra_opts['extra_compile_args'] += ['-std=c99']
 
-print(f"extra_opts={extra_opts}")
 gufunc_module = Extension('gulinalg._impl',
                           sources = MODULE_SOURCES,
                           depends = MODULE_DEPENDENCIES,

@@ -41,17 +41,19 @@ class TestInnerwt(TestCase):
         a = np.random.randn(n_batch, N)
         b = np.random.randn(n_batch, N)
         c = np.random.randn(n_batch, N)
-        res = gulinalg.innerwt(a, b, c)
-        ref = np.sum(a * b * c, axis=-1)
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.innerwt(a, b, c, workers=workers)
+            ref = np.sum(a * b * c, axis=-1)
+            assert_allclose(res, ref)
 
     def test_complex_vector(self):
         a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
         b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
         c = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
-        res = gulinalg.innerwt(a, b, c)
-        ref = np.sum(a * b * c, axis=-1)
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.innerwt(a, b, c, workers=workers)
+            ref = np.sum(a * b * c, axis=-1)
+            assert_allclose(res, ref)
 
 
 class TestMatvecMultiplyNoCopy(TestCase):

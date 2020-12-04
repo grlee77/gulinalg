@@ -51,7 +51,7 @@ def _check_workers(workers):
     return workers, orig_workers
 
 
-def inner1d(a, b, **kwargs):
+def inner1d(a, b, workers=1, **kwargs):
     """
     Compute the dot product of vectors over the inner dimension, with
     broadcasting.
@@ -62,6 +62,10 @@ def inner1d(a, b, **kwargs):
         Input array
     b : (..., N) array
         Input array
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -95,10 +99,17 @@ def inner1d(a, b, **kwargs):
     [ 7. 43.]
 
     """
-    return _impl.inner1d(a, b, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out =  _impl.inner1d(a, b, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def dotc1d(a, b, **kwargs):
+def dotc1d(a, b, workers=1, **kwargs):
     """
     Compute the dot product of vectors over the inner dimension, conjugating
     the first vector, with broadcasting
@@ -115,6 +126,10 @@ def dotc1d(a, b, **kwargs):
     dotc : (...) array
         dot product conjugating the first vector over the inner
         dimension.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Notes
     -----
@@ -143,7 +158,14 @@ def dotc1d(a, b, **kwargs):
     [ 7. 43.]
 
     """
-    return _impl.dotc1d(a, b, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out =  _impl.dotc1d(a, b, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
 def innerwt(a, b, c, workers=1, **kwargs):

@@ -38,16 +38,18 @@ class TestInner1d(TestCase):
     def test_real_vector(self):
         a = np.random.randn(n_batch, N)
         b = np.random.randn(n_batch, N)
-        res = gulinalg.inner1d(a, b)
-        ref = np.sum(a * b, axis=-1)
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.inner1d(a, b, workers=workers)
+            ref = np.sum(a * b, axis=-1)
+            assert_allclose(res, ref)
 
     def test_complex_vector(self):
         a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
         b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
-        res = gulinalg.inner1d(a, b)
-        ref = np.sum(a * b, axis=-1)
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.inner1d(a, b, workers=workers)
+            ref = np.sum(a * b, axis=-1)
+            assert_allclose(res, ref)
 
 
 class TestDotc1d(TestCase):
@@ -62,9 +64,10 @@ class TestDotc1d(TestCase):
     def test_complex_vector(self):
         a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
         b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
-        res = gulinalg.dotc1d(a, b)
-        ref = np.sum(np.conj(a) * b, axis=-1)
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.dotc1d(a, b, workers=workers)
+            ref = np.sum(np.conj(a) * b, axis=-1)
+            assert_allclose(res, ref)
 
 
 class TestInnerwt(TestCase):

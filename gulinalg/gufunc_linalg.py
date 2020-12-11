@@ -30,7 +30,7 @@ from . import _impl
 from .gufunc_general import _check_workers, matrix_multiply
 
 
-def det(a, **kwargs):
+def det(a, workers=1, **kwargs):
     """
     Compute the determinant of arrays, with broadcasting.
 
@@ -38,6 +38,10 @@ def det(a, **kwargs):
     ----------
     a : (NDIMS, M, M) array
         Input array. Its inner dimensions must be those of a square 2-D array.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -72,10 +76,17 @@ def det(a, **kwargs):
     True
 
     """
-    return _impl.det(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.det(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def slogdet(a, **kwargs):
+def slogdet(a, workers=1, **kwargs):
     """
     Compute the sign and (natural) logarithm of the determinant of an array,
     with broadcasting.
@@ -89,6 +100,10 @@ def slogdet(a, **kwargs):
     ----------
     a : (..., M, M) array
         Input array. Its inner dimensions must be those of a square 2-D array.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -142,8 +157,14 @@ def slogdet(a, **kwargs):
     True
 
     """
-    return _impl.slogdet(a, **kwargs)
-
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.slogdet(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 def inv(a, workers=1, **kwargs):
     """
@@ -156,6 +177,10 @@ def inv(a, workers=1, **kwargs):
     ----------
     a : (..., M, M) array
         Matrices to be inverted
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -196,7 +221,7 @@ def inv(a, workers=1, **kwargs):
     return out
 
 
-def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
+def inv_triangular(a, UPLO='L', unit_diagonal=False, workers=1, **kwargs):
     """
     Computes the inverse of a real triangular matrix, with broadcasting.
 
@@ -207,15 +232,17 @@ def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
     ----------
     a : (..., M, M) array
         Matrices to be inverted
-
     UPLO : {'U', 'L'}, optional
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `a` ('L', default) or
          the upper triangular part ('U').
-
     unit_diagonal : bool, optional
          If True, the diagonal elements of 'a' are assumed to be 1 and are
          not referenced.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -266,10 +293,17 @@ def inv_triangular(a, UPLO='L', unit_diagonal=False, **kwargs):
         else:
             gufunc = _impl.inv_lower_triangular_non_unit_diagonal
 
-    return gufunc(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = gufunc(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def cholesky(a, UPLO='L', **kwargs):
+def cholesky(a, UPLO='L', workers=1, **kwargs):
     """
     Compute the cholesky decomposition of `a`, with broadcasting
 
@@ -297,6 +331,10 @@ def cholesky(a, UPLO='L', **kwargs):
     UPLO : {'U', 'L'}, optional
          Specifies whether the output of the decomposition is upper or lower
          triangular.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -337,15 +375,27 @@ def cholesky(a, UPLO='L', **kwargs):
            [0.+2.j, 1.+0.j]])
 
     """
+    uplo_choices = ['U', 'L']
+    if UPLO not in uplo_choices:
+        raise ValueError("Invalid UPLO argument '%s', valid values are: %s" %
+                         (UPLO, uplo_choices))
+
     if 'L' == UPLO:
         gufunc = _impl.cholesky_lo
     else:
         gufunc = _impl.cholesky_up
 
-    return gufunc(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = gufunc(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def eig(a, **kwargs):
+def eig(a, workers=1, **kwargs):
     """
     Compute the eigenvalues and right eigenvectors of square arrays,
     with broadcasting
@@ -355,6 +405,10 @@ def eig(a, **kwargs):
     a : (..., M, M) array
         Matrices for which the eigenvalues and right eigenvectors will
         be computed
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -364,7 +418,6 @@ def eig(a, **kwargs):
         array will be always be of complex type. When `a` is real
         the resulting eigenvalues will be real (0 imaginary part) or
         occur in conjugate pairs
-
     v : (..., M, M) array
         The normalized (unit "length") eigenvectors, such that the
         column ``v[:,i]`` is the eigenvector corresponding to the
@@ -432,10 +485,17 @@ def eig(a, **kwargs):
     True
 
     """
-    return _impl.eig(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.eig(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def eigvals(a, **kwargs):
+def eigvals(a, workers=1, **kwargs):
     """
     Compute the eigenvalues of general matrices, with broadcasting.
 
@@ -446,6 +506,10 @@ def eigvals(a, **kwargs):
     ----------
     a : (..., M, M) array
         Matrices whose eigenvalues will be computed
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -501,10 +565,17 @@ def eigvals(a, **kwargs):
     array([-1.+0.j,  1.+0.j])
 
     """
-    return _impl.eigvals(a, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.eigvals(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def eigh(A, UPLO='L', **kw_args):
+def eigh(A, UPLO='L', workers=1, **kwargs):
     """
     Computes the eigenvalues and eigenvectors for the square matrices
     in the inner dimensions of A, being those matrices
@@ -519,6 +590,10 @@ def eigh(A, UPLO='L', **kw_args):
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `A` ('L', default) or
          the upper triangular part ('U').
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -580,10 +655,18 @@ def eigh(A, UPLO='L', **kw_args):
     else:
         gufunc = _impl.eigh_up
 
-    return gufunc(A, **kw_args)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(A, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def eigvalsh(A, UPLO='L', **kw_args):
+def eigvalsh(A, UPLO='L', workers=1, **kwargs):
     """
     Computes the eigenvalues for the square matrices in the inner
     dimensions of A, being those matrices symmetric/hermitian.
@@ -597,6 +680,10 @@ def eigvalsh(A, UPLO='L', **kw_args):
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `A` ('L', default) or
          the upper triangular part ('U').
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -644,10 +731,18 @@ def eigvalsh(A, UPLO='L', **kw_args):
     else:
         gufunc = _impl.eigvalsh_up
 
-    return gufunc(A,**kw_args)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(A, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def solve(A, B, workers=1, **kw_args):
+def solve(A, B, workers=1, **kwargs):
     """
     Solve the linear matrix equations on the inner dimensions.
 
@@ -660,6 +755,10 @@ def solve(A, B, workers=1, **kw_args):
         Coefficient matrices.
     B : (..., M, N) array
         Ordinate or "dependent variable" values.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -710,7 +809,7 @@ def solve(A, B, workers=1, **kw_args):
     workers, orig_workers = _check_workers(workers)
 
     try:
-        out = gufunc(A, B, **kw_args)
+        out = gufunc(A, B, **kwargs)
     finally:
         # restore original number of workers
         if workers != orig_workers:
@@ -718,7 +817,7 @@ def solve(A, B, workers=1, **kw_args):
     return out
 
 
-def lu(a, permute_l=False, **kw_args):
+def lu(a, permute_l=False, workers=1, **kwargs):
     """
     LU decomposition on the inner dimensions.
 
@@ -736,6 +835,10 @@ def lu(a, permute_l=False, **kw_args):
         Matrices for which compute the lu decomposition
     permute_l : bool
         Instead of returning P, L and U (default), return P*L and U.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -805,10 +908,18 @@ def lu(a, permute_l=False, **kw_args):
         else:
             gufunc = _impl.lu_n
 
-    return gufunc(a, **kw_args)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def qr(a, economy=False, **kw_args):
+def qr(a, economy=False, workers=1, **kwargs):
     """
     QR decomposition of general matrices on the inner dimensions.
 
@@ -825,6 +936,10 @@ def qr(a, economy=False, **kw_args):
     economy : bool
         If True and M > N, return only first N columns of Q and first N
         rows of R.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -873,10 +988,18 @@ def qr(a, economy=False, **kw_args):
     else:
         gufunc = _impl.qr_m
 
-    return gufunc(a, **kw_args)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(a, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def svd(a, full_matrices=1, compute_uv=1 ,**kw_args):
+def svd(a, full_matrices=1, compute_uv=1 ,**kwargs):
     """
     Singular Value Decomposition on the inner dimensions.
 
@@ -961,10 +1084,10 @@ def svd(a, full_matrices=1, compute_uv=1 ,**kw_args):
             gufunc = _impl.svd_m
         else:
             gufunc = _impl.svd_n
-    return gufunc(a, **kw_args)
+    return gufunc(a, **kwargs)
 
 
-def chosolve(A, B, UPLO='L', workers=1, **kw_args):
+def chosolve(A, B, UPLO='L', workers=1, **kwargs):
     """
     Solve the linear matrix equations on the inner dimensions, using
     cholesky decomposition.
@@ -983,6 +1106,10 @@ def chosolve(A, B, UPLO='L', workers=1, **kw_args):
          Specifies whether the calculation is done with the lower
          triangular part of the elements in `A` ('L', default) or
          the upper triangular part ('U').
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -1041,7 +1168,7 @@ def chosolve(A, B, UPLO='L', workers=1, **kw_args):
             gufunc = _impl.chosolve_up
 
     try:
-        out = gufunc(A, B, **kw_args)
+        out = gufunc(A, B, **kwargs)
     finally:
         # restore original number of workers
         if workers != orig_workers:
@@ -1049,8 +1176,8 @@ def chosolve(A, B, UPLO='L', workers=1, **kw_args):
     return out
 
 
-def solve_triangular(A, B, UPLO='L',
-                     transpose_type='N', unit_diagonal=False, **kw_args):
+def solve_triangular(A, B, UPLO='L', transpose_type='N', unit_diagonal=False,
+                     workers=1, **kwargs):
     """
     Solve the linear matrix equation A * X = B on the inner dimensions
     where A is a triangular matrix.
@@ -1059,24 +1186,24 @@ def solve_triangular(A, B, UPLO='L',
     ----------
     A : (..., M, M) array
         A triangular matrix.
-
     B : (..., M, N) or (..., M,) array
         Right hand side matrix in A * X = B.
-
     UPLO : {'U', 'L'}, optional
-         Specifies whether the calculation is done with the lower
-         triangular part of the elements in `A` ('L', default) or
-         the upper triangular part ('U').
-
+        Specifies whether the calculation is done with the lower
+        triangular part of the elements in `A` ('L', default) or
+        the upper triangular part ('U').
     transpose_type : {'N', 'T', 'C'}, optional
-         Transpose type which decides equation to be solved.
-         N => No transpose i.e. solve A * X = B
-         T => Transpose i.e. solve A^T * X = B
-         C => Conjugate transpose i.e. solve A^H * X = B
-
-     unit_diagonal : bool, optional
-         If True, the diagonal elements of 'a' are assumed to be 1 and are
-         not referenced.
+        Transpose type which decides equation to be solved.
+        N => No transpose i.e. solve A * X = B
+        T => Transpose i.e. solve A^T * X = B
+        C => Conjugate transpose i.e. solve A^H * X = B
+    unit_diagonal : bool, optional
+        If True, the diagonal elements of 'a' are assumed to be 1 and are
+        not referenced.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -1147,10 +1274,18 @@ def solve_triangular(A, B, UPLO='L',
     gufunc = getattr(_impl,
                      ext_method_prefix + UPLO + transpose_type + diagonal_type)
 
-    return gufunc(A, B, **kw_args)
+    workers, orig_workers = _check_workers(workers)
+
+    try:
+        out = gufunc(A, B, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def poinv(A, UPLO='L', **kw_args):
+def poinv(A, UPLO='L', workers=1, **kwargs):
     """
     Compute the (multiplicative) inverse of symmetric/hermitian positive
     definite matrices, with broadcasting.
@@ -1163,6 +1298,14 @@ def poinv(A, UPLO='L', **kw_args):
     ----------
     a : (..., M, M) array
         Symmetric/hermitian postive definite matrices to be inverted.
+    UPLO : {'U', 'L'}, optional
+         Specifies whether the calculation is done with the lower
+         triangular part of the elements in `a` ('L', default) or
+         the upper triangular part ('U').
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -1195,15 +1338,27 @@ def poinv(A, UPLO='L', **kw_args):
     True
 
     """
+    uplo_choices = ['U', 'L']
+    if UPLO not in uplo_choices:
+        raise ValueError("Invalid UPLO argument '%s', valid values are: %s" %
+                         (UPLO, uplo_choices))
+
     if 'L' == UPLO:
         gufunc = _impl.poinv_lo
     else:
         gufunc = _impl.poinv_up
 
-    return gufunc(A, **kw_args)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = gufunc(A, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out
 
 
-def ldl(A, **kwargs):
+def ldl(A, workers=1, **kwargs):
     """
     LDL decomposition.
 
@@ -1219,6 +1374,10 @@ def ldl(A, **kwargs):
     ----------
     a : (..., M, M) array_like
         Hermitian (symmetric if all elements are real) input matrix.
+    workers : int, optional
+        The number of parallel threads to use along gufunc loop dimension(s).
+        If set to -1, the maximum number of threads (as returned by
+        ``multiprocessing.cpu_count()``) are used.
 
     Returns
     -------
@@ -1266,4 +1425,11 @@ def ldl(A, **kwargs):
            Baltimore, MD, Johns Hopkins University Press, 2013, pg. 192
     """
 
-    return _impl.ldl(A, **kwargs)
+    workers, orig_workers = _check_workers(workers)
+    try:
+        out = _impl.ldl(A, **kwargs)
+    finally:
+        # restore original number of workers
+        if workers != orig_workers:
+            _impl.set_gufunc_threads(orig_workers)
+    return out

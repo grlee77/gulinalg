@@ -66,29 +66,40 @@ if "GULINALG_DISABLE_OPENMP" not in os.environ:
     omp_test_c = """#include <omp.h>
 int main(int argc, char** argv) { return(0); }"""
 
-    # OpenMP flags for MSVC
+
     msc_flag_defines = [[["/openmp"], [], omp_test_c, "HAVE_VC_OPENMP"]]
 
-    # OpenMP flags for other compilers
-    gcc_flag_defines = [
-        [["-fopenmp"], ["-fopenmp"], omp_test_c, "HAVE_OPENMP"]
-    ]
+    # flag_defines list order is:
+    #     [compile_flags, link_flags, test_code, defines]
+    openmp_libs = []
+    if "msc" in platform.python_compiler().lower():
+        # OpenMP flags for MSVC
+        flag_defines = [[["/openmp"], [], omp_test_c, "HAVE_VC_OPENMP"]]
+    elif 'GULINALG_USING_ICC' in os.environ:
+        # OpenMP flags for Intel's icc
+        flag_defines = [
+            [["-qopenmp"], ["-qopenmp"], omp_test_c, "HAVE_OPENMP"]
+        ]
+    else:
+        GULINALG_INTEL_OPENMP = 'GULINALG_INTEL_OPENMP' in os.environ
+        if GULINALG_INTEL_OPENMP:
+            # Link to Intel OpenMP library (instead of libgomp default for GCC)
+            # Reference at Intel's site: https://tinyurl.com/yxmf7bwy
+            openmp_link_args = []
+            openmp_libs = ['iomp5', 'pthread']
+        else:
+            openmp_link_args = ['-fopenmp']
 
-    flag_defines = (
-        msc_flag_defines
-        if "msc" in platform.python_compiler().lower()
-        else gcc_flag_defines
-    )
+        # OpenMP flags for gcc
+        flag_defines = [
+            [["-fopenmp"], openmp_link_args, omp_test_c, "HAVE_OPENMP"]
+        ]
 
-    extbuilder = add_flag_checking(build_ext, flag_defines, "gulinalg")
+    extbuilder = add_flag_checking(build_ext, flag_defines, "gulinalg",
+                                   openmp_libs)
     cmdclass['build_ext'] = extbuilder
 else:
     cmdclass['build_ext'] = build_ext
-
-GULINALG_INTEL_OPENMP = 'GULINALG_INTEL_OPENMP' in os.environ
-if GULINALG_INTEL_OPENMP:
-    # Link to Intel OpenMP library (instead of libgomp default for GCC)
-    extra_opts['libraries'] += ['iomp5']
 
 if 'extra_compile_args' not in extra_opts:
     extra_opts['extra_compile_args'] = []

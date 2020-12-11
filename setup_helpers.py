@@ -22,7 +22,7 @@ CONFIG_PY = "__config__.py"
 LIB_DIR_TMP = pjoin("build", "extra_libs")
 
 
-def add_flag_checking(build_ext_class, flag_defines, top_package_dir=""):
+def add_flag_checking(build_ext_class, flag_defines, top_package_dir="", extra_libs=[]):
     """ Override input `build_ext_class` to check compiler `flag_defines`
 
     Parameters
@@ -62,8 +62,9 @@ def add_flag_checking(build_ext_class, flag_defines, top_package_dir=""):
 
     class Checker(build_ext_class):
         flag_defs = tuple(flag_defines)
+        ext_libs = tuple(extra_libs)
 
-        def can_compile_link(self, compile_flags, link_flags, code):
+        def can_compile_link(self, compile_flags, link_flags, code, ext_libs):
             cc = self.compiler
             fname = "test.c"
             cwd = os.getcwd()
@@ -80,7 +81,7 @@ def add_flag_checking(build_ext_class, flag_defines, top_package_dir=""):
                     # Link shared lib rather then executable to avoid
                     # http://bugs.python.org/issue4431 with MSVC 10+
                     cc.link_shared_lib(
-                        objects, "testlib", extra_postargs=link_flags
+                        objects, "testlib", libraries=extra_libs, extra_postargs=link_flags
                     )
                 except (LinkError, TypeError):
                     return False
@@ -94,18 +95,20 @@ def add_flag_checking(build_ext_class, flag_defines, top_package_dir=""):
             def_vars = []
             good_compile_flags = []
             good_link_flags = []
+            good_extra_libs = []
             config_dir = dirname(CONFIG_H)
             for compile_flags, link_flags, code, def_var in self.flag_defs:
                 compile_flags = list(compile_flags)
                 link_flags = list(link_flags)
                 flags_good = self.can_compile_link(
-                    compile_flags, link_flags, code
+                    compile_flags, link_flags, code, self.ext_libs
                 )
                 if def_var:
                     def_vars.append((def_var, flags_good))
                 if flags_good:
                     good_compile_flags += compile_flags
                     good_link_flags += link_flags
+                    good_extra_libs += self.ext_libs
                 else:
                     log.warn(
                         "Flags {0} omitted because of compile or link "
@@ -137,10 +140,11 @@ def add_flag_checking(build_ext_class, flag_defines, top_package_dir=""):
                     fobj.write("# Variables from compile checks\n")
                     for v_name, v_value in def_vars:
                         fobj.write("{0} = {1}\n".format(v_name, v_value))
-            if def_vars or good_compile_flags or good_link_flags:
+            if def_vars or good_compile_flags or good_link_flags or good_extra_libs:
                 for ext in self.extensions:
                     ext.extra_compile_args += good_compile_flags
                     ext.extra_link_args += good_link_flags
+                    ext.libraries += good_extra_libs
                     if def_vars:
                         ext.include_dirs.append(config_dir)
             build_ext_class.build_extensions(self)

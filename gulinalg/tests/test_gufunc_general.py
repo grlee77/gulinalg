@@ -19,6 +19,94 @@ K = 100
 n_batch = 8
 
 
+class TestInner1d(TestCase):
+
+    def test_real(self):
+        a = np.random.randn(N)
+        b = np.random.randn(N)
+        res = gulinalg.inner1d(a, b)
+        ref = np.sum(a * b)
+        assert_allclose(res, ref)
+
+    def test_complex(self):
+        a = np.random.randn(N) + 1j * np.random.randn(N)
+        b = np.random.randn(N) + 1j * np.random.randn(N)
+        res = gulinalg.inner1d(a, b)
+        ref = np.sum(a * b)
+        assert_allclose(res, ref)
+
+    def test_real_vector(self):
+        a = np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.inner1d(a, b, workers=workers)
+            ref = np.sum(a * b, axis=-1)
+            assert_allclose(res, ref)
+
+    def test_complex_vector(self):
+        a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.inner1d(a, b, workers=workers)
+            ref = np.sum(a * b, axis=-1)
+            assert_allclose(res, ref)
+
+
+class TestDotc1d(TestCase):
+
+    def test_complex(self):
+        a = np.random.randn(N) + 1j * np.random.randn(N)
+        b = np.random.randn(N) + 1j * np.random.randn(N)
+        res = gulinalg.dotc1d(a, b)
+        ref = np.sum(np.conj(a) * b)
+        assert_allclose(res, ref)
+
+    def test_complex_vector(self):
+        a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.dotc1d(a, b, workers=workers)
+            ref = np.sum(np.conj(a) * b, axis=-1)
+            assert_allclose(res, ref)
+
+
+class TestInnerwt(TestCase):
+
+    def test_real(self):
+        a = np.random.randn(N)
+        b = np.random.randn(N)
+        c = np.random.randn(N)
+        res = gulinalg.innerwt(a, b, c)
+        ref = np.sum(a * b * c)
+        assert_allclose(res, ref)
+
+    def test_complex(self):
+        a = np.random.randn(N) + 1j * np.random.randn(N)
+        b = np.random.randn(N) + 1j * np.random.randn(N)
+        c = np.random.randn(N) + 1j * np.random.randn(N)
+        res = gulinalg.innerwt(a, b, c)
+        ref = np.sum(a * b * c)
+        assert_allclose(res, ref)
+
+    def test_real_vector(self):
+        a = np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N)
+        c = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.innerwt(a, b, c, workers=workers)
+            ref = np.sum(a * b * c, axis=-1)
+            assert_allclose(res, ref)
+
+    def test_complex_vector(self):
+        a = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        b = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        c = np.random.randn(n_batch, N) + 1j * np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.innerwt(a, b, c, workers=workers)
+            ref = np.sum(a * b * c, axis=-1)
+            assert_allclose(res, ref)
+
+
 class TestMatvecMultiplyNoCopy(TestCase):
     """
     Tests the cases that code can handle without copy-rearranging of any of
@@ -114,6 +202,43 @@ class TestMatvecMultiplyNoCopy(TestCase):
         ref = np.dot(a, b)
         assert_allclose(res, ref)
 
+    def test_matvec_multiply_batch_b(self):
+        """Multiply C layout matrix with stack of vectors"""
+        a = np.ascontiguousarray(np.random.randn(M, N))
+        b = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.matvec_multiply(a, b)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_a(self):
+        """Multiply C layout stack of matrices with a vector"""
+        a = np.ascontiguousarray(np.random.randn(n_batch, M, N))
+        b = np.random.randn(N)
+        for workers in [1, -1]:
+            res = gulinalg.matvec_multiply(a, b)
+            ref = np.matmul(a, b[:, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_both(self):
+        """Multiply C layout stack of matrices and vectors"""
+        a = np.ascontiguousarray(np.random.randn(n_batch, M, N))
+        b = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.matvec_multiply(a, b)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_both_out(self):
+        """Multiply C layout stack of matrices and vectors"""
+        a = np.ascontiguousarray(np.random.randn(n_batch, M, N))
+        b = np.random.randn(n_batch, N)
+        res = np.zeros((n_batch, M), dtype=a.dtype)
+        for workers in [1, -1]:
+            gulinalg.matvec_multiply(a, b, out=res)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
+
 
 class TestMatvecMultiplyWithCopy(TestCase):
     """
@@ -184,6 +309,16 @@ class TestMatvecMultiplyWithCopy(TestCase):
         res = gulinalg.matvec_multiply(a, b)
         ref = np.dot(a, b)
         assert_allclose(res, ref)
+
+    def test_matvec_multiply_batch_both_out_non_contiguous(self):
+        """Multiply C layout stack of matrices and vectors"""
+        a = np.random.randn(n_batch, M, N, 2)[..., 0]
+        b = np.random.randn(n_batch, N, 2)[..., 0]
+        res = np.zeros((n_batch, M, 2), dtype=a.dtype)[..., 0]
+        for workers in [1, -1]:
+            gulinalg.matvec_multiply(a, b, out=res)
+            ref = np.matmul(a, b[:, :, np.newaxis])[..., 0]
+            assert_allclose(res, ref)
 
 
 class TestMatvecMultiplyVector(TestCase):
@@ -383,9 +518,10 @@ class TestUpdateRank1WithCopy(TestCase):
         c = np.ascontiguousarray(np.random.randn(M, N))
         assert not a.flags.c_contiguous and not a.flags.f_contiguous
         assert not b.flags.c_contiguous and not b.flags.f_contiguous
-        res = gulinalg.update_rank1(a, b, c)
-        ref = np.dot(a.reshape(M, 1), b.reshape(1, N)) + c
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.update_rank1(a, b, c, workers=workers)
+            ref = np.dot(a.reshape(M, 1), b.reshape(1, N)) + c
+            assert_allclose(res, ref)
 
     def test_input_non_contiguous_matrix(self):
         """Non contiguous matrix input"""
@@ -428,22 +564,24 @@ class TestUpdateRank1Vector(TestCase):
         a = np.ascontiguousarray(np.random.randn(10, M))
         b = np.ascontiguousarray(np.random.randn(10, N))
         c = np.ascontiguousarray(np.random.randn(10, M, N))
-        res = gulinalg.update_rank1(a, b, c)
-        assert res.shape == (10, M, N)
-        ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c[i]
-                        for i in range(len(c))])
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.update_rank1(a, b, c, workers=workers)
+            assert res.shape == (10, M, N)
+            ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c[i]
+                            for i in range(len(c))])
+            assert_allclose(res, ref)
 
     def test_broadcast(self):
         """test broadcast rank1 update"""
         a = np.ascontiguousarray(np.random.randn(10, M))
         b = np.ascontiguousarray(np.random.randn(10, N))
         c = np.ascontiguousarray(np.random.randn(M, N))
-        res = gulinalg.update_rank1(a, b, c)
-        assert res.shape == (10, M, N)
-        ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c
-                        for i in range(len(b))])
-        assert_allclose(res, ref)
+        for workers in [1, -1]:
+            res = gulinalg.update_rank1(a, b, c, workers=workers)
+            assert res.shape == (10, M, N)
+            ref = np.stack([np.dot(a[i].reshape(M, 1), b[i].reshape(1, N)) + c
+                            for i in range(len(b))])
+            assert_allclose(res, ref)
 
     def test_nan_handling(self):
         """NaN in one output shouldn't contaminate remaining outputs"""
@@ -763,6 +901,66 @@ class TestSyrk(TestCase):
 
         with assert_raises(ValueError):
             gulinalg.update_rankk(a, workers=0)
+
+
+class TestQuadraticForm(TestCase):
+
+    """Tests for Quadratic Form u * Q * v"""
+    def test_quadratic_c(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(M)
+        q = np.random.randn(M, N)
+        v = np.random.randn(N)
+        res = gulinalg.quadratic_form(u, q, v)
+        ref = np.dot(u[np.newaxis, :], np.dot(q, v[:, np.newaxis]))
+        assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_u(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(n_batch, M)
+        q = np.random.randn(M, N)
+        v = np.random.randn(N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :], np.dot(q, v[:, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_uv(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(n_batch, M)
+        q = np.random.randn(M, N)
+        v = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :],
+                                     np.dot(q, v[i, :, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_uqv(self):
+        """test vectorized matrix multiply"""
+        u = np.random.randn(n_batch, M)
+        q = np.random.randn(n_batch, M, N)
+        v = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :],
+                                     np.dot(q[i, ...], v[i, :, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
+
+    def test_quadratic_broadcast_uqv_contiguity(self):
+        """test vectorized matrix multiply"""
+        u = np.asfortranarray(np.random.randn(n_batch, M))
+        q = np.random.randn(n_batch, M, N, 2)[..., 0]  # non-contiguous
+        v = np.random.randn(n_batch, N)
+        for workers in [1, -1]:
+            res = gulinalg.quadratic_form(u, q, v, workers=workers)
+            ref = [np.squeeze(np.dot(u[i:i+1, :],
+                                     np.dot(q[i, ...], v[i, :, np.newaxis])))
+                   for i in range(n_batch)]
+            assert_allclose(res, ref)
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ from numpy.testing import run_module_suite, assert_allclose
 from pkg_resources import parse_version
 import gulinalg
 
+n_batch = 8
 
 class TestLU(TestCase):
     """
@@ -113,10 +114,20 @@ class TestLU(TestCase):
     def test_vector(self):
         """test vectorized LU decomposition"""
         a = np.ascontiguousarray(np.random.randn(10, 75, 50))
-        p, l, u = gulinalg.lu(a)
-        res = np.stack([np.dot(np.dot(p[i], l[i]), u[i])
-                        for i in range(len(a))])
-        assert_allclose(res, a)
+        for workers in [1, -1]:
+            p, l, u = gulinalg.lu(a, workers=workers)
+            res = np.stack([np.dot(np.dot(p[i], l[i]), u[i])
+                            for i in range(len(a))])
+            assert_allclose(res, a)
+
+    def test_vector_permute_l(self):
+        """test vectorized LU decomposition"""
+        a = np.ascontiguousarray(np.random.randn(10, 75, 50))
+        for workers in [1, -1]:
+            pl, u = gulinalg.lu(a, permute_l=True, workers=workers)
+            res = np.stack([np.dot(pl[i], u[i])
+                            for i in range(len(a))])
+            assert_allclose(res, a)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -312,9 +323,11 @@ class TestQR(TestCase):
     def test_vector(self):
         """test vectorized QR decomposition"""
         a = np.ascontiguousarray(np.random.randn(10, 75, 50))
-        q, r = gulinalg.qr(a)
-        res = np.stack([np.dot(q[i], r[i]) for i in range(len(a))])
-        assert_allclose(res, a)
+        for economy in [False, True]:
+            for workers in [1, -1]:
+                q, r = gulinalg.qr(a, economy=economy, workers=workers)
+                res = np.stack([np.dot(q[i], r[i]) for i in range(len(a))])
+                assert_allclose(res, a)
 
     @skipIf(parse_version(np.__version__) < parse_version('1.13'),
             "Prior to 1.13, numpy low level iterators didn't support removing "
@@ -409,21 +422,21 @@ class TestQR(TestCase):
 class TestCholesky(TestCase):
     """Test Cholesky decomposition"""
     def test_real_L(self):
-        m = 50
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         L = gulinalg.cholesky(a, UPLO='L')
         assert_allclose(np.matmul(L, L.T), a)
 
     def test_real_U(self):
-        m = 50
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         U = gulinalg.cholesky(a, UPLO='U')
         assert_allclose(np.matmul(U.T, U), a)
 
-    def test_complex(self):
-        m = 50
+    def test_complex_L(self):
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = a + 1j * np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
@@ -431,7 +444,7 @@ class TestCholesky(TestCase):
         assert_allclose(np.matmul(L, np.conj(L).T), a)
 
     def test_complex_U(self):
-        m = 50
+        m = 10
         a = np.ascontiguousarray(np.random.randn(m, m))
         a = a + 1j * np.ascontiguousarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
@@ -439,7 +452,7 @@ class TestCholesky(TestCase):
         assert_allclose(np.matmul(np.conj(U).T, U), a)
 
     def test_real_noncontiguous(self):
-        m = 50
+        m = 10
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         a = a[::2, ::2]
@@ -447,49 +460,234 @@ class TestCholesky(TestCase):
         assert_allclose(np.matmul(L, L.T), a)
 
     def test_real_fortran(self):
-        m = 50
+        m = 10
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
         L = gulinalg.cholesky(a, UPLO='L')
         assert_allclose(np.matmul(L, L.T), a)
 
-    def test_real_broadcast(self):
+    def test_real_broadcast_L(self):
         m = 5
-        nbatch = 16
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
-        a = np.stack((a,) * nbatch, axis=0)
-        L = gulinalg.cholesky(a, UPLO='L')
-        assert_allclose(np.matmul(L, L.swapaxes(-2, -1)), a)
+        a = np.stack((a,) * n_batch, axis=0)
+        for workers in [1, -1]:
+            L = gulinalg.cholesky(a, UPLO='L', workers=workers)
+            assert_allclose(np.matmul(L, L.swapaxes(-2, -1)), a)
 
     def test_real_broadcast_U(self):
         m = 5
-        nbatch = 16
         a = np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, a.T)  # make Hermetian symmetric
-        a = np.stack((a,) * nbatch, axis=0)
-        U = gulinalg.cholesky(a, UPLO='U')
-        assert_allclose(np.matmul(U.swapaxes(-2, -1), U), a)
+        a = np.stack((a,) * n_batch, axis=0)
+        for workers in [1, -1]:
+            U = gulinalg.cholesky(a, UPLO='U', workers=workers)
+            assert_allclose(np.matmul(U.swapaxes(-2, -1), U), a)
 
     def test_complex_broadcast_U(self):
         m = 5
-        nbatch = 16
         a = np.asfortranarray(np.random.randn(m, m))
         a = a + 1j * np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
-        a = np.stack((a,) * nbatch, axis=0)
-        U = gulinalg.cholesky(a, UPLO='U')
-        assert_allclose(np.matmul(np.conj(U).swapaxes(-2, -1), U), a)
+        a = np.stack((a,) * n_batch, axis=0)
+        for workers in [1, -1]:
+            U = gulinalg.cholesky(a, UPLO='U', workers=workers)
+            assert_allclose(np.matmul(np.conj(U).swapaxes(-2, -1), U), a)
 
     def test_complex_broadcast_L(self):
         m = 5
-        nbatch = 16
         a = np.asfortranarray(np.random.randn(m, m))
         a = a + 1j * np.asfortranarray(np.random.randn(m, m))
         a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
-        a = np.stack((a,) * nbatch, axis=0)
-        L = gulinalg.cholesky(a, UPLO='L')
-        assert_allclose(np.matmul(L, np.conj(L).swapaxes(-2, -1)), a)
+        a = np.stack((a,) * n_batch, axis=0)
+        for workers in [1, -1]:
+            L = gulinalg.cholesky(a, UPLO='L', workers=workers)
+            assert_allclose(np.matmul(L, np.conj(L).swapaxes(-2, -1)), a)
+
+
+class TestEig(TestCase):
+    """Test Eigenvalue Decomposition"""
+
+    def _check_eigen(self, A, w, v):
+        '''vectorial check of Mv==wv'''
+        lhs = gulinalg.matrix_multiply(A, v)
+        rhs = w*v
+        assert_allclose(lhs, rhs, rtol=1e-6)
+
+    def _run_single(self, a):
+        w, v = gulinalg.eig(a)
+        w_2 = gulinalg.eigvals(a)
+        assert_allclose(w, w_2)
+        self._check_eigen(a, w, v)
+
+    def _run_vector(self, a):
+        for workers in [1, -1]:
+            w, v = gulinalg.eig(a, workers=workers)
+            w_2 = gulinalg.eigvals(a, workers=workers)
+            assert_allclose(w, w_2)
+            self._check_eigen(a, w[:, np.newaxis, :], v)
+
+    def test_real(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m)
+        self._run_single(a)
+
+    def test_complex(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m) + 1j * rstate.randn(m, m)
+        self._run_single(a)
+
+    def test_real_vector(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        self._run_vector(a)
+
+    def test_complex_vector(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        a = a + 1j * rstate.randn(n_batch, m, m)
+        self._run_vector(a)
+
+    def test_real_vector_f(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        a = np.asfortranarray(a)
+        self._run_vector(a)
+
+    def test_real_vector_noncontig(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m, 2)[..., 0]
+        self._run_vector(a)
+
+
+class TestEigh(TestCase):
+    """Test Eigenvalue Decomposition of (Hermetian) symmetric matrices"""
+
+    def _check_eigen(self, A, w, v):
+        '''vectorial check of Mv==wv'''
+        lhs = gulinalg.matrix_multiply(A, v)
+        rhs = w*v
+        assert_allclose(lhs, rhs, rtol=1e-6)
+
+    def _run_single(self, a):
+        for uplo in ['L', 'U']:
+            if uplo == 'L':
+                w, v = gulinalg.eigh(np.tril(a), UPLO='L')
+                w_2 = gulinalg.eigvalsh(np.tril(a), UPLO='L')
+            else:
+                w, v = gulinalg.eigh(np.triu(a), UPLO='U')
+                w_2 = gulinalg.eigvalsh(np.triu(a), UPLO='U')
+            assert_allclose(w, w_2)
+            self._check_eigen(a, w, v)
+
+    def _run_vector(self, a):
+        for workers in [1, -1]:
+            for uplo in ['L', 'U']:
+                if uplo == 'L':
+                    w, v = gulinalg.eigh(np.tril(a), UPLO='L', workers=workers)
+                    w_2 = gulinalg.eigvalsh(np.tril(a), UPLO='L',
+                                            workers=workers)
+                else:
+                    w, v = gulinalg.eigh(np.triu(a), UPLO='U', workers=workers)
+                    w_2 = gulinalg.eigvalsh(np.triu(a), UPLO='U',
+                                            workers=workers)
+                assert_allclose(w, w_2)
+                self._check_eigen(a, w[:, np.newaxis, :], v)
+
+    def test_real(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m)
+        a = np.dot(a, a.T)  # make Hermetian symmetric
+        self._run_single(a)
+
+    def test_complex(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(m, m) + 1j * rstate.randn(m, m)
+        a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
+        self._run_single(a)
+
+    def test_real_vector(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        a = gulinalg.matrix_multiply(a, a.swapaxes(-2, -1))  # make symmetric
+        self._run_vector(a)
+
+    def test_complex_vector(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        a = a + 1j * rstate.randn(n_batch, m, m)
+        a = gulinalg.matrix_multiply(
+            a, np.conj(a).swapaxes(-2, -1)  # make symmetric
+        )
+        self._run_vector(a)
+
+    def test_real_vector_f(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m)
+        a = gulinalg.matrix_multiply(a, a.swapaxes(-2, -1))  # make symmetric
+        a = np.asfortranarray(a)
+        self._run_vector(a)
+
+    def test_real_vector_noncontig(self):
+        m = 10
+        rstate = np.random.RandomState(5)
+        a = rstate.randn(n_batch, m, m, 2)[..., 0]
+        a = gulinalg.matrix_multiply(a, a.swapaxes(-2, -1))  # make symmetric
+        self._run_vector(a)
+
+
+class TestLDL(TestCase):
+    """Test LDL Decomposition of (Hermetian) symmetric matrices"""
+
+    def _check_ldl(self, a, l, d):
+        '''vectorial check of Mv==wv'''
+        matmul = gulinalg.matrix_multiply
+        assert_allclose(matmul(l, matmul(d, np.conj(l).swapaxes(-2, -1))), a)
+
+    def test_real(self):
+        m = 10
+        a = np.random.randn(m, m)
+        a = np.matmul(a, a.T)  # make symmetric
+        l, d = gulinalg.ldl(a)
+        self._check_ldl(a, l, d)
+
+    def test_complex(self):
+        m = 10
+        a = np.random.randn(m, m) + 1j * np.random.randn(m, m)
+        a = np.dot(a, np.conj(a).T)  # make Hermetian symmetric
+        l, d = gulinalg.ldl(a)
+        self._check_ldl(a, l, d)
+
+    # TODO: fix workers > 1 case in MKL environments.
+    #       segfault has been observed within mkl_blas_avx512_xdswap
+    def test_real_vector(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m)
+        a = np.matmul(a, a.swapaxes(-2, -1))  # make symmetric
+        for workers in [1, ]:  # -1]:
+            l, d = gulinalg.ldl(a, workers=workers)
+            self._check_ldl(a, l, d)
+
+    # TODO: fix workers > 1 case in MKL environments.
+    #       segfault has been observed within mkl_blas_avx512_xdswap
+    def test_complex_vector(self):
+        m = 10
+        a = np.random.randn(n_batch, m, m) + 1j * np.random.randn(n_batch, m, m)
+        a = np.matmul(a, np.conj(a).swapaxes(-2, -1))  # make symmetric
+        for workers in [1, ]:  #  -1]:
+            l, d = gulinalg.ldl(a, workers=workers)
+            self._check_ldl(a, l, d)
 
 
 if __name__ == '__main__':
